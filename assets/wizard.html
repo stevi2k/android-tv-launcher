@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000000">
+<title>TV Setup Wizard</title>
+<style>
+  :root { --bg:#000; --card:#1c1c1e; --card2:#2c2c2e; --line:rgba(255,255,255,.08); --text:#fff; --dim:rgba(235,235,245,.6); --accent:#0a84ff; --red:#ff453a; --green:#30d158; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; background:var(--bg); color:var(--text); font:16px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif; }
+  body { padding:calc(env(safe-area-inset-top) + 12px) 16px calc(env(safe-area-inset-bottom) + 28px); }
+  h1 { font-size:30px; margin:8px 0 2px; } h2 { font-size:20px; margin:30px 0 10px; }
+  .sub { color:var(--dim); font-size:14px; } .card { background:var(--card); border-radius:14px; padding:14px; margin-top:10px; }
+  .card p { margin:0 0 10px; color:var(--dim); font-size:14px; } .card b { color:var(--text); }
+  button { font:inherit; color:inherit; border:0; cursor:pointer; }
+  .btn { background:var(--card); border-radius:14px; padding:13px 16px; font-weight:600; margin-top:8px; }
+  .btn.primary { background:var(--accent); } .btn.wide { width:100%; } .btn.red { color:var(--red); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; } .chip { background:var(--card); border-radius:999px; padding:10px 16px; font-size:15px; }
+  .chip.on { background:var(--accent); } .chip.off { color:var(--dim); }
+  input { width:100%; font:17px -apple-system,system-ui; color:var(--text); background:var(--card); border:0; border-radius:14px; padding:0 16px; height:50px; outline:none; margin-top:8px; }
+  pre { white-space:pre-wrap; word-wrap:break-word; font-size:13px; color:var(--dim); background:var(--card); border-radius:14px; padding:12px; }
+  .hidden { display:none !important; }
+  #toast { position:fixed; left:50%; bottom:24px; transform:translate(-50%,20px); background:rgba(44,44,46,.96); padding:12px 18px; border-radius:14px; opacity:0; transition:.25s; pointer-events:none; max-width:calc(100% - 32px); text-align:center; }
+  #toast.show { opacity:1; transform:translate(-50%,0); }
+</style>
+</head>
+<body>
+<h1>TV Setup</h1>
+<p class="sub" id="tvInfo"></p>
+<p class="sub" id="status">Not paired</p>
+
+<section id="pair">
+  <div class="card"><p>This page runs on the TV itself, one install only. Pair your phone once, then the steps below run on the TV.</p>
+  <input id="pairName" type="text" placeholder="Phone name (optional, e.g. My iPhone)" maxlength="40" style="width:100%;padding:10px;margin-bottom:10px">
+  <button class="btn primary wide" id="pairBtn">Pair this phone</button>
+  <p id="pairWait" class="hidden" style="margin:14px 0 0">On the TV, choose <b>Allow</b> with the remote (press Right, then OK)…</p></div>
+</section>
+
+<section id="app" class="hidden">
+  <div class="card" id="adbCard"><p id="adbText">Checking local debugging…</p>
+  <ol><li>On the TV, open Settings, Developer options, turn on network debugging.</li><li>Come back here and tap Check again. The first time, the TV asks Allow USB debugging, tick Always allow.</li></ol>
+  <button class="btn" id="checkBtn">Check again</button></div>
+
+  <h2>1. Backup</h2>
+  <div class="card"><p>Save the current apps, docks and hidden lists before you change anything.</p>
+  <button class="btn primary" id="backupBtn">Backup now</button><pre id="backupOut"></pre></div>
+
+  <h2>2. Disable apps / junk apps</h2>
+  <div class="card"><p>Pick the junk apps to turn off. They are disabled, not deleted, so Restore can bring them back one by one.</p>
+  <div class="row" id="cands"></div>
+  <button class="btn primary" id="debloatBtn">Turn off selected (stop first)</button><pre id="debloatOut"></pre></div>
+  <div class="card"><p>All apps and services: search, pick any enabled app or service, then turn it off. Protected core packages are not listed.</p>
+  <input id="allSearch" placeholder="Search apps and services…">
+  <div class="row" id="allPkgs"></div>
+  <button class="btn primary" id="debloatAllBtn">Turn off selected (stop first)</button><pre id="debloatAllOut"></pre></div>
+
+  <h2>3. Users</h2>
+  <div class="card"><p>No users are built in. Add your own here, then set their docks and hidden lists below. Rename or delete a user here too.</p>
+  <div id="users"></div>
+  <input id="newUserName" placeholder="New user name…">
+  <label style="display:block;margin-top:8px"><input type="checkbox" id="newUserKid" style="width:auto;height:auto"> Kid profile</label>
+  <button class="btn primary" id="addUserBtn">Add user</button></div>
+
+  <div class="card"><p>Weather location for the home screen. Type a city, or a latitude,longitude. No city is built in.</p>
+  <p id="weatherPlace"></p>
+  <input id="weatherInput" placeholder="City, or latitude,longitude…">
+  <button class="btn primary" id="saveWeatherBtn">Save weather location</button>
+  <button class="btn" id="detectWeatherBtn">Detect from IP</button></div>
+
+  <h2>4. Docks</h2>
+  <div class="card"><p>Pick up to 5 apps per user. Tap a user, tap apps, then Save dock.</p>
+  <div class="row" id="profileTabs"></div>
+  <div class="row" id="dockApps"></div>
+  <button class="btn primary" id="saveDockBtn">Save dock</button></div>
+
+  <h2>5. Hidden apps</h2>
+  <div class="card"><p>Pick the apps this user should not see on the home screen. They still live in that user's Hidden folder.</p>
+  <div class="row" id="hiddenApps"></div>
+  <button class="btn primary" id="saveHiddenBtn">Save hidden list</button></div>
+
+  <h2>6. Set as home</h2>
+  <div class="card"><p>Turn off the stock home app, so this launcher becomes the home. Restore can bring it back.</p>
+  <div id="homes"></div><pre id="homeOut"></pre></div>
+
+  <h2>Restore disabled apps</h2>
+  <div class="card"><p>Pick one disabled app to bring back, or restore all at the top.</p>
+  <button class="btn red" id="restoreBtn">Restore ALL disabled apps</button>
+  <div id="disabledList"></div><pre id="restoreOut"></pre></div>
+
+  <button class="btn wide" id="forget">Unpair this phone</button>
+</section>
+
+<div id="toast"></div>
+<script>
+let token = null;
+try { token = localStorage.getItem("tvtoken"); } catch (e) {}
+const $ = id => document.getElementById(id);
+let toastT = null;
+function toast(m) { const t = $("toast"); t.textContent = m; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 3000); }
+async function api(path, opts) {
+  opts = opts || {};
+  opts.headers = Object.assign({}, opts.headers || {}, token ? { "X-Token": token } : {});
+  const res = await fetch(path, opts);
+  if (res.status === 401) { forget(); throw new Error("not paired"); }
+  return res.json();
+}
+function forget() { token = null; try { localStorage.removeItem("tvtoken"); } catch (e) {} $("app").classList.add("hidden"); $("pair").classList.remove("hidden"); $("status").textContent = "Not paired"; }
+$("pairBtn").onclick = async () => {
+  let r; try { r = await fetch("/api/pair", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: ($("pairName").value || "").trim() }) }).then(x => x.json()); } catch (e) { toast("Can't reach the TV"); return; }
+  if (!r.ok) { toast(r.error || "Pairing failed"); return; }
+  $("pairWait").classList.remove("hidden");
+  for (let i = 0; i < 60; i++) {
+    await new Promise(x => setTimeout(x, 1000));
+    let st; try { st = await fetch("/api/pair/status?id=" + encodeURIComponent(r.id)).then(x => x.json()); } catch (e) { continue; }
+    if (st.token) { token = st.token; try { localStorage.setItem("tvtoken", token); } catch (e) {} $("pairWait").classList.add("hidden"); load(); return; }
+    if (!st.ok && !st.waiting) { toast(st.error || "Pairing failed"); break; }
+  }
+  $("pairWait").classList.add("hidden");
+};
+$("forget").onclick = async () => { if (!confirm("Unpair this phone?")) return; try { await api("/api/unpair", { method: "POST" }); } catch (e) {} forget(); };
+
+let data = null, activeProfile = 0, dockSel = [], hiddenSel = [], candSel = [], allSel = [];
+async function load() {
+  $("pair").classList.add("hidden"); $("app").classList.remove("hidden"); $("status").textContent = "Connected";
+  try { data = await api("/api/wizard/status"); } catch (e) { toast(e.message); return; }
+  if (data.tvModel) $("tvInfo").textContent = data.tvModel + " · " + location.host;
+  $("weatherPlace").textContent = data.weatherPlace ? "Current: " + data.weatherPlace : "Not set yet. Home will try your IP location.";
+  $("adbText").textContent = data.localAdbReady ? "Helper status: Connected. Local debugging is ready. The wizard can turn apps off and set home." : "Helper status: Disconnected. Local debugging is not ready: " + data.localAdbError;
+  candSel = data.candidates.filter(c => c.onByDefault).map(c => c.pkg);
+  renderCands(); renderAllPkgs(); renderUsers(); renderTabs(); renderDock(); renderHidden(); renderHomes(); renderDisabled();
+}
+function renderAllPkgs() { const el = $("allPkgs"); const q = ($("allSearch").value || "").toLowerCase(); el.innerHTML = ""; (data.allPackages || []).filter(a => !q || a.label.toLowerCase().includes(q) || a.pkg.toLowerCase().includes(q)).forEach(a => { el.appendChild(chip(a.label, allSel.includes(a.pkg), () => { allSel = allSel.includes(a.pkg) ? allSel.filter(p => p !== a.pkg) : [...allSel, a.pkg]; renderAllPkgs(); })); }); }
+function renderDisabled() { const el = $("disabledList"); el.innerHTML = ""; if (!(data.disabled || []).length) { el.innerHTML = "<p>No disabled apps found.</p>"; return; } data.disabled.forEach(d => { const b = document.createElement("button"); b.className = "btn"; b.textContent = "Restore " + d.label; b.onclick = async () => { const r = await api("/api/wizard/restore-one", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pkg: d.pkg }) }); $("restoreOut").textContent = r.result || ""; toast("Restored"); load(); }; el.appendChild(b); }); }
+function chip(label, on, fn) { const b = document.createElement("button"); b.className = "chip" + (on ? " on" : ""); b.textContent = label; b.onclick = fn; return b; }
+function renderCands() { const el = $("cands"); el.innerHTML = ""; data.candidates.forEach(c => { el.appendChild(chip(c.label, candSel.includes(c.pkg), () => { candSel = candSel.includes(c.pkg) ? candSel.filter(p => p !== c.pkg) : [...candSel, c.pkg]; renderCands(); })); }); }
+function renderUsers() { const el = $("users"); el.innerHTML = ""; if (!data.profiles.length) el.innerHTML = "<p>No users yet. Add one below.</p>"; data.profiles.forEach(p => { const row = document.createElement("div"); const inp = document.createElement("input"); inp.value = p.name; inp.placeholder = "User name"; const save = document.createElement("button"); save.className = "btn"; save.textContent = "Rename " + p.name; save.onclick = async () => { await api("/api/wizard/rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idx: p.idx, name: inp.value }) }); toast("Renamed"); load(); }; const del = document.createElement("button"); del.className = "btn red"; del.textContent = "Delete " + p.name; del.onclick = async () => { if (!confirm("Delete " + p.name + "? Their dock and hidden list go with them. Other users are untouched.")) return; await api("/api/wizard/delete-profile", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idx: p.idx }) }); activeProfile = 0; dockSel = []; hiddenSel = []; toast("Deleted"); load(); }; row.appendChild(inp); row.appendChild(save); row.appendChild(del); el.appendChild(row); }); }
+function renderTabs() { const el = $("profileTabs"); el.innerHTML = ""; data.profiles.forEach(p => { el.appendChild(chip(p.name, activeProfile === p.idx, () => { activeProfile = p.idx; dockSel = [...data.profiles[p.idx].dock]; hiddenSel = [...data.profiles[p.idx].hidden]; renderTabs(); renderDock(); renderHidden(); })); }); if (!dockSel.length && data.profiles[activeProfile]) { dockSel = [...data.profiles[activeProfile].dock]; hiddenSel = [...data.profiles[activeProfile].hidden]; } }
+function renderDock() { const el = $("dockApps"); el.innerHTML = ""; data.apps.forEach(a => { el.appendChild(chip(a.label, dockSel.includes(a.pkg), () => { if (dockSel.includes(a.pkg)) dockSel = dockSel.filter(p => p !== a.pkg); else if (dockSel.length < 5) dockSel.push(a.pkg); else toast("Dock is full at 5 apps"); renderDock(); })); }); }
+function renderHidden() { const el = $("hiddenApps"); el.innerHTML = ""; data.apps.forEach(a => { el.appendChild(chip(a.label, hiddenSel.includes(a.pkg), () => { hiddenSel = hiddenSel.includes(a.pkg) ? hiddenSel.filter(p => p !== a.pkg) : [...hiddenSel, a.pkg]; renderHidden(); })); }); }
+function renderHomes() { const el = $("homes"); el.innerHTML = ""; if (!data.homes.length) { el.innerHTML = "<p>No other home app found.</p>"; return; } data.homes.forEach(h => { const b = document.createElement("button"); b.className = "btn"; b.textContent = "Turn off " + h.label; b.onclick = async () => { const r = await api("/api/wizard/sethome", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pkg: h.pkg }) }); $("homeOut").textContent = r.result || ""; toast("Done"); load(); }; el.appendChild(b); }); }
+$("checkBtn").onclick = load;
+$("backupBtn").onclick = async () => { const r = await api("/api/wizard/backup", { method: "POST" }); $("backupOut").textContent = "Backup saved: " + r.path; toast("Backed up"); };
+$("debloatBtn").onclick = async () => { if (!confirm("Turn off " + candSel.length + " apps? They can be restored.")) return; const r = await api("/api/wizard/debloat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pkgs: candSel, stopFirst: true }) }); $("debloatOut").textContent = r.result || ""; toast("Debloat done"); load(); };
+$("allSearch").oninput = renderAllPkgs;
+$("debloatAllBtn").onclick = async () => { if (!confirm("Turn off " + allSel.length + " apps or services? They can be restored one by one.")) return; const r = await api("/api/wizard/debloat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pkgs: allSel, stopFirst: true }) }); $("debloatAllOut").textContent = r.result || ""; toast("Debloat done"); load(); };
+$("saveDockBtn").onclick = async () => { await api("/api/wizard/dock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idx: activeProfile, pkgs: dockSel }) }); toast("Dock saved"); load(); };
+$("saveHiddenBtn").onclick = async () => { await api("/api/wizard/hidden", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idx: activeProfile, pkgs: hiddenSel }) }); toast("Hidden list saved"); load(); };
+$("restoreBtn").onclick = async () => { if (!confirm("Bring back all apps the wizard turned off?")) return; const r = await api("/api/wizard/restore", { method: "POST" }); $("restoreOut").textContent = r.result || ""; toast("Restored"); load(); };
+$("addUserBtn").onclick = async () => { const name = $("newUserName").value.trim(); if (!name) { toast("Type a name first"); return; } await api("/api/wizard/add-profile", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, kid: $("newUserKid").checked }) }); $("newUserName").value = ""; $("newUserKid").checked = false; toast("User added"); load(); };
+$("saveWeatherBtn").onclick = async () => { const location = $("weatherInput").value.trim(); if (!location) { toast("Type a city first"); return; } const r = await api("/api/wizard/weather", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ location }) }); if (!r.place || r.place === "null") toast("Place not found, try another spelling"); else { toast("Weather set to " + r.place); load(); } };
+$("detectWeatherBtn").onclick = async () => { const r = await api("/api/wizard/weather-detect", { method: "POST" }); if (!r.place || r.place === "null") toast("IP detection failed, try again"); else { toast("Weather set to " + r.place); load(); } };
+if (token) load(); else { $("pair").classList.remove("hidden"); }
+</script>
+</body>
+</html>
