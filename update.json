@@ -1,6 +1,6 @@
 {
-  "versionCode": 260100,
-  "versionName": "26.1",
-  "apkUrl": "",
-  "changelog": "First numbered release. Settings > Updates: check for updates, see what changed, update or skip a version. Nothing installs on its own. Back navigation in Settings now keeps your place instead of jumping to the top. Phone names at pairing, shown in Unpair phones, or Unknown when no name was set. Hiding an app also removes it from that user's dock."
+  "versionCode": 260101,
+  "versionName": "26.1.1",
+  "apkUrl": "https://github.com/stevi2k/android-tv-launcher/releases/download/v26.1.1/android-tv-launcher-26.1.1.apk",
+  "changelog": "Information icon now shows the i instead of a solid disc."
 }
