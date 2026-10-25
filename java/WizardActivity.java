@@ -1246,11 +1246,12 @@ public class WizardActivity extends Activity {
         if (manual) resultView.setText("Checking...");
         new Thread(() -> {
             try {
-                java.net.URL url = new java.net.URL(UPDATE_URL);
+                java.net.URL url = new java.net.URL(UPDATE_URL + "?t=" + System.currentTimeMillis());
                 java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
                 conn.setConnectTimeout(10_000);
                 conn.setReadTimeout(10_000);
                 conn.setRequestProperty("User-Agent", "android-tv-launcher");
+                conn.setUseCaches(false);
                 java.io.InputStream in = conn.getInputStream();
                 java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
                 byte[] chunk = new byte[4096];

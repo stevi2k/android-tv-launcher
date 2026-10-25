@@ -1,6 +1,6 @@
 {
-  "versionCode": 260101,
-  "versionName": "26.1.1",
-  "apkUrl": "https://github.com/stevi2k/android-tv-launcher/releases/download/v26.1.1/android-tv-launcher-26.1.1.apk",
-  "changelog": "Information icon now shows the i instead of a solid disc."
+  "versionCode": 260102,
+  "versionName": "26.1.2",
+  "apkUrl": "https://github.com/stevi2k/android-tv-launcher/releases/download/v26.1.2/android-tv-launcher-26.1.2.apk",
+  "changelog": "Update check now fetches a fresh update file instead of a cached copy, so a new version shows up right after it is published. Phone pairing placeholder updated."
 }
