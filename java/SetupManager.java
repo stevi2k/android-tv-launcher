@@ -1,4 +1,4 @@
-package com.kulwant.atvhome;
+package com.stevi2k.atvhome;
 
 import android.content.Context;
 import android.content.Intent;
@@ -65,7 +65,7 @@ final class SetupManager {
     /** Packages the wizard must never offer to disable. */
     static final Set<String> PROTECTED = new HashSet<>();
     static {
-        PROTECTED.add("com.kulwant.atvhome");
+        PROTECTED.add("com.stevi2k.atvhome");
         PROTECTED.add("moe.shizuku.privileged.api");
         PROTECTED.add("com.google.android.katniss");
         PROTECTED.add("com.android.settings");

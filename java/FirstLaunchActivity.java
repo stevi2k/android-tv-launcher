@@ -1,4 +1,4 @@
-package com.kulwant.atvhome;
+package com.stevi2k.atvhome;
 
 import android.app.Activity;
 import android.content.Intent;
@@ -947,13 +947,13 @@ public class FirstLaunchActivity extends Activity {
     private void openOverlaySettings() {
         try {
             startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    android.net.Uri.parse("package:com.kulwant.atvhome")));
+                    android.net.Uri.parse("package:com.stevi2k.atvhome")));
             return;
         } catch (Exception ignored) {
         }
         try {
             startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    android.net.Uri.parse("package:com.kulwant.atvhome")));
+                    android.net.Uri.parse("package:com.stevi2k.atvhome")));
             return;
         } catch (Exception ignored) {
         }

@@ -1,4 +1,4 @@
-package com.kulwant.atvhome;
+package com.stevi2k.atvhome;
 
 import android.app.Activity;
 import android.content.Intent;
@@ -1485,7 +1485,7 @@ public class WizardActivity extends Activity {
                 in.close();
                 runOnUiThread(() -> {
                     try {
-                        android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(this, "com.kulwant.atvhome.fileprovider", out);
+                        android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(this, "com.stevi2k.atvhome.fileprovider", out);
                         Intent intent = new Intent(Intent.ACTION_VIEW);
                         intent.setDataAndType(uri, "application/vnd.android.package-archive");
                         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);

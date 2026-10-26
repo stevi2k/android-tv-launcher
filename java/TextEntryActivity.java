@@ -1,4 +1,4 @@
-package com.kulwant.atvhome;
+package com.stevi2k.atvhome;
 
 import android.app.Activity;
 import android.content.Intent;
