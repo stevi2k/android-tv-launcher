@@ -60,6 +60,16 @@ final class SetupManager {
         CANDIDATES.add(new Candidate("YouView", "com.youview.poa", false));
         CANDIDATES.add(new Candidate("ISDB tuner", "com.mediatek.dtv.tvinput.isdbtuner", false));
         CANDIDATES.add(new Candidate("DVB tuner", "com.mediatek.dtv.tvinput.dvbtuner", false));
+        CANDIDATES.add(new Candidate("Samba TV UI", "tv.samba.ssm.ui", true));
+        CANDIDATES.add(new Candidate("Sony bug report system", "com.sony.dtv.sonybugreportsys", true));
+        CANDIDATES.add(new Candidate("Google partner setup", "com.google.android.partnersetup", true));
+        CANDIDATES.add(new Candidate("One-time initializer", "com.google.android.onetimeinitializer", true));
+        CANDIDATES.add(new Candidate("Hotel mode", "com.sony.dtv.b2b.hotelmode", true));
+        CANDIDATES.add(new Candidate("Sony Seeds IoT", "com.sony.dtv.seeds.iot", true));
+        CANDIDATES.add(new Candidate("ATSC 3.0 tuner", "com.sony.dtv.tvinput.atsc3tuner", true));
+        CANDIDATES.add(new Candidate("Sony customer support", "com.sony.dtv.customersupport", true));
+        CANDIDATES.add(new Candidate("Sony Smart Help", "com.sony.dtv.smarthelp", true));
+        CANDIDATES.add(new Candidate("Eco Dashboard", "com.sony.dtv.ecodashboard", true));
     }
 
     /** Packages the wizard must never offer to disable. */
