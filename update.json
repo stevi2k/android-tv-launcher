@@ -1,6 +1,6 @@
 {
-  "versionCode": 260102,
-  "versionName": "26.1.2",
-  "apkUrl": "https://github.com/stevi2k/android-tv-launcher/releases/download/v26.1.2/android-tv-launcher-26.1.2.apk",
-  "changelog": "Update check now fetches a fresh update file instead of a cached copy, so a new version shows up right after it is published. Phone pairing placeholder updated."
+  "versionCode": 260103,
+  "versionName": "26.1.3",
+  "apkUrl": "https://github.com/stevi2k/android-tv-launcher/releases/download/v26.1.3/android-tv-launcher-26.1.3.apk",
+  "changelog": "Configurations export/import, no-skip first-launch wizard, Android 12 target, wizard gate, and Restore/Set as home fixes."
 }
