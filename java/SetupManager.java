@@ -328,7 +328,7 @@ final class SetupManager {
         PackageManager pm = c.getPackageManager();
         List<Candidate> out = new ArrayList<>();
         Set<String> seen = new HashSet<>();
-        for (android.content.pm.ApplicationInfo ai : pm.getInstalledApplications(0)) {
+        for (android.content.pm.ApplicationInfo ai : pm.getInstalledApplications(android.content.pm.PackageManager.MATCH_DISABLED_COMPONENTS)) {
             if (ai.enabled || seen.contains(ai.packageName)) continue;
             seen.add(ai.packageName);
             String label = String.valueOf(ai.loadLabel(pm));
@@ -341,7 +341,7 @@ final class SetupManager {
             pkg = pkg.trim();
             if (pkg.isEmpty() || seen.contains(pkg)) continue;
             try {
-                android.content.pm.ApplicationInfo ai = pm.getApplicationInfo(pkg, 0);
+                android.content.pm.ApplicationInfo ai = pm.getApplicationInfo(pkg, android.content.pm.PackageManager.MATCH_DISABLED_COMPONENTS);
                 if (!ai.enabled) {
                     seen.add(pkg);
                     out.add(new Candidate(String.valueOf(ai.loadLabel(pm)), pkg, false));
@@ -384,13 +384,24 @@ final class SetupManager {
         return out;
     }
 
-    /** HOME activities other than our own launcher, for the set-home step. */
+    /** HOME activities other than our own launcher, for the set-home step.
+     *  System Settings is NOT a stock home, even though it declares a
+     *  FallbackHome activity (priority -1000, last resort when no launcher
+     *  is left). It used to slip in here because it is the only other HOME
+     *  activity once the stock launcher is already disabled, so Settings >
+     *  Set as home showed only "Disable Settings" — tapping it would kill
+     *  system Settings (Display over apps, Developer options, App info)
+     *  without setting anything useful as home. Filter it out here, not
+     *  via PROTECTED, because PROTECTED also holds the real stock homes
+     *  (launcherx, tvlauncher) that set-home is meant to disable. */
     List<Map<String, String>> homePackages() {
         List<Map<String, String>> out = new ArrayList<>();
         Intent home = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
         for (ResolveInfo ri : c.getPackageManager().queryIntentActivities(home, 0)) {
             String pkg = ri.activityInfo.packageName;
             if (pkg.equals(c.getPackageName())) continue;
+            if (pkg.equals("com.android.tv.settings") || pkg.equals("com.android.settings")) continue;
+            if (ri.activityInfo.name != null && ri.activityInfo.name.contains("FallbackHome")) continue;
             Map<String, String> m = new LinkedHashMap<>();
             m.put("pkg", pkg);
             m.put("label", String.valueOf(ri.loadLabel(c.getPackageManager())));
@@ -538,6 +549,8 @@ final class SetupManager {
     String setHome(LocalShell shell, String pkg) {
         if (pkg == null || pkg.isEmpty() || pkg.equals(c.getPackageName()))
             return "Pick a stock home app to disable, not this launcher.";
+        if (pkg.equals("com.android.tv.settings") || pkg.equals("com.android.settings"))
+            return "Refusing to disable system Settings: that is the fallback home, not a stock home app.";
         boolean isHome = false;
         for (Map<String, String> h : homePackages()) {
             if (pkg.equals(h.get("pkg"))) { isHome = true; break; }
@@ -555,6 +568,309 @@ final class SetupManager {
         } catch (Exception e) {
             return pkg + ": failed: " + shell.lastError();
         }
+    }
+
+    // ---------------------------------------------------------------- configurations (26.1.3)
+    // Lightweight by design: nothing here runs on its own. These methods
+    // are called only when the user taps Export, Import, Rename, Delete,
+    // Upload or Download, on the TV or from the phone. The file list is
+    // a directory listing only (name/size/date, contents never read),
+    // files are opened, read or written, then closed at once, and nothing
+    // is cached, polled, synced in the background, or auto-exported.
+    // There is deliberately no write-on-save hook anywhere in this file.
+
+    static final int CONFIG_VERSION = 1;
+    static final int MAX_CONFIG_BYTES = 1024 * 1024;
+    private static final java.util.regex.Pattern PKG_PATTERN =
+            java.util.regex.Pattern.compile("^[A-Za-z][\\w]*(\\.[\\w]+)+$");
+
+    /** Well-formed package shape only, NOT "installed on this TV": an
+     *  imported dock may name an app this TV does not have yet, and home
+     *  simply skips missing packages. Requiring installed here would
+     *  make a bedroom export unimportable on another TV. */
+    static boolean isWellFormedPackage(String pkg) {
+        return pkg != null && PKG_PATTERN.matcher(pkg).matches();
+    }
+
+    static File configsDir(Context c) {
+        File base = c.getExternalFilesDir(null);
+        if (base == null) base = c.getFilesDir();
+        File dir = new File(base, "configs");
+        dir.mkdirs();
+        return dir;
+    }
+
+    /** Existing config files, newest first. Directory stats only. */
+    static List<File> configFiles(Context c) {
+        List<File> out = new ArrayList<>();
+        File dir = configsDir(c);
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                if (f.isFile() && f.getName().endsWith(".json")) out.add(f);
+            }
+        }
+        out.sort((a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+        return out;
+    }
+
+    /** Sanitizes a config file name. Returns null for anything unsafe:
+     *  empty, a path separator, "..", or a name that is not a plain
+     *  .json file name. The returned name is a basename only, so it can
+     *  never escape the configs folder, whatever the caller supplied. */
+    static String sanitizeConfigName(String raw) {
+        if (raw == null) return null;
+        String name = raw.trim();
+        if (name.isEmpty()) return null;
+        if (name.contains("/") || name.contains("\\") || name.contains("..")) return null;
+        if (!name.endsWith(".json")) name = name + ".json";
+        if (name.length() < 6 || name.length() > 100) return null;
+        if (!name.matches("^[A-Za-z0-9._-]+$")) return null;
+        if (name.equals(".json")) return null;
+        return name;
+    }
+
+    private static String configStamp() {
+        return new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US)
+                .format(new java.util.Date());
+    }
+
+    /** A unique file in the configs dir: the wanted name, or the name
+     *  with a counter appended, never an overwrite of an existing file. */
+    private static File uniqueConfigFile(File dir, String name) {
+        File f = new File(dir, name);
+        if (!f.exists()) return f;
+        String base = name.substring(0, name.length() - 5);
+        for (int i = 2; i < 1000; i++) {
+            File alt = new File(dir, base + "-" + i + ".json");
+            if (!alt.exists()) return alt;
+        }
+        return new File(dir, base + "-" + System.currentTimeMillis() + ".json");
+    }
+
+    /** The current config as JSON: profiles, active profile by NAME
+     *  (not index, so a reordered list still picks the right person),
+     *  weather, and the debloat log as a record only. Phone tokens,
+     *  the helper ADB keypair, update prefs and wallpaper photos are
+     *  deliberately never written into a config file. */
+    static org.json.JSONObject currentConfigJson(Context c) throws Exception {
+        SharedPreferences prefs = c.getSharedPreferences("home", Context.MODE_PRIVATE);
+        org.json.JSONObject root = new org.json.JSONObject();
+        root.put("version", CONFIG_VERSION);
+        List<AppRepo.Profile> ps = AppRepo.loadProfiles(c);
+        org.json.JSONArray profiles = new org.json.JSONArray();
+        for (AppRepo.Profile p : ps) {
+            org.json.JSONObject o = new org.json.JSONObject();
+            o.put("id", p.id == null || p.id.isEmpty() ? java.util.UUID.randomUUID().toString() : p.id);
+            o.put("name", p.name);
+            o.put("kid", p.kid);
+            org.json.JSONArray dock = new org.json.JSONArray();
+            for (String pkg : p.dock) dock.put(pkg);
+            o.put("dock", dock);
+            org.json.JSONArray hidden = new org.json.JSONArray();
+            for (String pkg : p.hidden) hidden.put(pkg);
+            o.put("hidden", hidden);
+            profiles.put(o);
+        }
+        root.put("profiles", profiles);
+        int active = prefs.getInt("profile", 0);
+        String activeName = (active >= 0 && active < ps.size()) ? ps.get(active).name : "";
+        root.put("activeProfileName", activeName);
+        org.json.JSONObject weather = new org.json.JSONObject();
+        weather.put("lat", prefs.getString("weather_lat", ""));
+        weather.put("lon", prefs.getString("weather_lon", ""));
+        weather.put("place", prefs.getString("weather_place", ""));
+        root.put("weather", weather);
+        org.json.JSONArray disabled = new org.json.JSONArray();
+        for (String pkg : split(prefs.getString("wizard_disabled_log", ""))) disabled.put(pkg);
+        root.put("disabled", disabled);
+        return root;
+    }
+
+    /** Writes the current config to a new timestamped file. Returns the
+     *  file, or null on failure. Never overwrites an existing file. */
+    static File exportConfig(Context c) {
+        try {
+            File dir = configsDir(c);
+            File f = uniqueConfigFile(dir, "config-" + configStamp() + ".json");
+            try (FileWriter w = new FileWriter(f)) {
+                w.write(currentConfigJson(c).toString(2));
+            }
+            return f;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    /** Renames a config file. Returns an error message, or null on
+     *  success. The .json extension is kept, and a name that already
+     *  exists is refused, never overwritten. */
+    static String renameConfigFile(Context c, String oldName, String newName) {
+        String oldClean = sanitizeConfigName(oldName);
+        String newClean = sanitizeConfigName(newName);
+        if (oldClean == null || newClean == null) return "That name is not allowed.";
+        if (oldClean.equals(newClean)) return null;
+        File dir = configsDir(c);
+        File src = new File(dir, oldClean);
+        File dst = new File(dir, newClean);
+        if (!src.isFile()) return "That export is no longer on the TV.";
+        if (dst.exists()) return "An export with that name already exists.";
+        return src.renameTo(dst) ? null : "Rename failed.";
+    }
+
+    static boolean deleteConfigFile(Context c, String name) {
+        String clean = sanitizeConfigName(name);
+        if (clean == null) return false;
+        File f = new File(configsDir(c), clean);
+        return f.isFile() && f.delete();
+    }
+
+    /** Reads a config file's text, bounded, then closes it at once. */
+    static String readConfigFile(File f) throws Exception {
+        if (f.length() > MAX_CONFIG_BYTES) throw new Exception("File is too large.");
+        StringBuilder sb = new StringBuilder();
+        try (java.io.BufferedReader br = new java.io.BufferedReader(new java.io.FileReader(f))) {
+            char[] buf = new char[8192];
+            int n;
+            while ((n = br.read(buf)) > 0) {
+                sb.append(buf, 0, n);
+                if (sb.length() > MAX_CONFIG_BYTES) throw new Exception("File is too large.");
+            }
+        }
+        return sb.toString();
+    }
+
+    /** Strict validation. Returns an error message, or null if the
+     *  text is a usable config. Nothing is applied by this method, so
+     *  a bad file can never partially apply: callers validate first,
+     *  then apply only on a null result. */
+    static String validateConfigText(String text) {
+        if (text == null || text.trim().isEmpty()) return "Empty file.";
+        org.json.JSONObject root;
+        try {
+            root = new org.json.JSONObject(text);
+        } catch (Exception e) {
+            return "Not a valid JSON file.";
+        }
+        if (root.has("version") && root.optInt("version", -1) != CONFIG_VERSION) {
+            return "Unsupported config version.";
+        }
+        org.json.JSONArray profiles = root.optJSONArray("profiles");
+        if (profiles == null) return "No profiles in this file.";
+        if (profiles.length() == 0) return "No profiles in this file.";
+        for (int i = 0; i < profiles.length(); i++) {
+            org.json.JSONObject o = profiles.optJSONObject(i);
+            if (o == null) return "A profile is not an object.";
+            String name = o.optString("name", "").trim();
+            if (name.isEmpty()) return "A profile has no name.";
+            if (o.has("kid") && !(o.opt("kid") instanceof Boolean)) return "A profile's kid flag is not true or false.";
+            for (String key : new String[]{"dock", "hidden"}) {
+                if (!o.has(key)) continue;
+                org.json.JSONArray arr = o.optJSONArray(key);
+                if (arr == null) return "A profile's " + key + " list is not a list.";
+                for (int j = 0; j < arr.length(); j++) {
+                    Object v = arr.opt(j);
+                    if (!(v instanceof String) || !isWellFormedPackage((String) v)) {
+                        return "A profile lists an invalid app package.";
+                    }
+                }
+            }
+        }
+        if (root.has("disabled")) {
+            org.json.JSONArray dis = root.optJSONArray("disabled");
+            if (dis == null) return "The disabled list is not a list.";
+            for (int i = 0; i < dis.length(); i++) {
+                Object v = dis.opt(i);
+                if (!(v instanceof String) || !isWellFormedPackage((String) v)) {
+                    return "The disabled list has an invalid package.";
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Summarises a validated config for the import confirmation screen:
+     *  profile names with dock/hidden counts, weather place, and the
+     *  disabled count (record only, never re-applied). */
+    static String describeConfig(org.json.JSONObject root) {
+        StringBuilder sb = new StringBuilder();
+        org.json.JSONArray profiles = root.optJSONArray("profiles");
+        sb.append("This will replace ").append(profiles.length()).append(profiles.length() == 1 ? " profile" : " profiles").append(": ");
+        for (int i = 0; i < profiles.length(); i++) {
+            org.json.JSONObject o = profiles.optJSONObject(i);
+            if (o == null) continue;
+            if (i > 0) sb.append(", ");
+            sb.append(o.optString("name", "?"));
+            sb.append(" (dock ").append(o.optJSONArray("dock") == null ? 0 : o.optJSONArray("dock").length());
+            sb.append(", hidden ").append(o.optJSONArray("hidden") == null ? 0 : o.optJSONArray("hidden").length()).append(")");
+        }
+        org.json.JSONObject w = root.optJSONObject("weather");
+        String place = w == null ? "" : w.optString("place", "");
+        sb.append(". Weather: ").append(place.isEmpty() ? "not set" : place).append(".");
+        org.json.JSONArray dis = root.optJSONArray("disabled");
+        sb.append(" Disabled apps recorded in the file: ").append(dis == null ? 0 : dis.length());
+        sb.append(" (record only, they will NOT be disabled again).");
+        return sb.toString();
+    }
+
+    /** Applies a validated config file. Returns null on success, or
+     *  "ERR:" plus an error message on failure. No backup file is written;
+     *  the disabled list is never re-applied. */
+    static String applyConfigFile(Context c, File f) {
+        String text;
+        try {
+            text = readConfigFile(f);
+        } catch (Exception e) {
+            return "ERR:Could not read that file.";
+        }
+        String err = validateConfigText(text);
+        if (err != null) return "ERR:" + err;
+        org.json.JSONObject root;
+        try {
+            root = new org.json.JSONObject(text);
+        } catch (Exception e) {
+            return "ERR:Not a valid JSON file.";
+        }
+        // Build the whole new profile list first, so a bad entry cannot
+        // leave half the profiles replaced.
+        List<AppRepo.Profile> next = new ArrayList<>();
+        org.json.JSONArray profiles = root.optJSONArray("profiles");
+        for (int i = 0; i < profiles.length(); i++) {
+            org.json.JSONObject o = profiles.optJSONObject(i);
+            AppRepo.Profile p = new AppRepo.Profile();
+            p.id = o.optString("id", "");
+            if (p.id.isEmpty()) p.id = java.util.UUID.randomUUID().toString();
+            p.name = o.optString("name", "").trim();
+            p.kid = o.optBoolean("kid", false);
+            org.json.JSONArray dock = o.optJSONArray("dock");
+            if (dock != null) for (int j = 0; j < dock.length(); j++) p.dock.add(dock.optString(j));
+            org.json.JSONArray hidden = o.optJSONArray("hidden");
+            if (hidden != null) for (int j = 0; j < hidden.length(); j++) p.hidden.add(hidden.optString(j));
+            next.add(p);
+        }
+        AppRepo.saveProfiles(c, next);
+        String activeName = root.optString("activeProfileName", "");
+        int active = 0;
+        for (int i = 0; i < next.size(); i++) {
+            if (next.get(i).name.equals(activeName)) { active = i; break; }
+        }
+        SharedPreferences prefs = c.getSharedPreferences("home", Context.MODE_PRIVATE);
+        prefs.edit().putInt("profile", active).apply();
+        org.json.JSONObject w = root.optJSONObject("weather");
+        if (w != null) {
+            String lat = w.optString("lat", ""), lon = w.optString("lon", ""), place = w.optString("place", "");
+            if (!lat.isEmpty() && !lon.isEmpty()) {
+                try {
+                    Double.parseDouble(lat);
+                    Double.parseDouble(lon);
+                    prefs.edit().putString("weather_lat", lat).putString("weather_lon", lon)
+                            .putString("weather_place", place).apply();
+                } catch (NumberFormatException ignored) {
+                    // Bad weather numbers: profiles still applied, weather left as it was.
+                }
+            }
+        }
+        return null;
     }
 
     static List<String> split(String csv) {

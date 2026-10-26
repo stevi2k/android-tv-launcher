@@ -387,6 +387,26 @@ final class PhoneServer {
             case "/api/photo/delete":
                 json(out, 200, Wallpapers.delete(c, param(r, "id")) ? ok() : err("not found"));
                 return;
+            case "/api/config/list":
+                json(out, 200, configList());
+                return;
+            case "/api/config/download":
+                configDownload(r, out);
+                return;
+            case "/api/config/create":
+                File cf = SetupManager.exportConfig(c);
+                json(out, 200, cf == null ? err("export failed") : ok().put("name", cf.getName()));
+                return;
+            case "/api/config/rename":
+                String rerr = SetupManager.renameConfigFile(c, param(r, "old"), param(r, "new"));
+                json(out, 200, rerr == null ? ok() : err(rerr));
+                return;
+            case "/api/config/delete":
+                json(out, 200, SetupManager.deleteConfigFile(c, param(r, "name")) ? ok() : err("not found"));
+                return;
+            case "/api/config/upload":
+                json(out, 200, configUpload(r));
+                return;
             case "/api/wizard/status":
                 json(out, 200, wizardStatus());
                 return;
@@ -444,6 +464,116 @@ final class PhoneServer {
             }
         }
         return v == null ? "" : v.trim();
+    }
+
+    // ---------------------------------------------------------------- configurations (26.1.3)
+    // No caching, no polling, no background work: every call lists the
+    // TV's configs folder fresh, and the phone page only calls these on
+    // open and after an action. Download streams the file in chunks,
+    // never as one held byte array.
+
+    private JSONObject configList() throws Exception {
+        JSONObject o = ok();
+        JSONArray files = new JSONArray();
+        for (File f : SetupManager.configFiles(c)) {
+            files.put(new JSONObject().put("name", f.getName()).put("size", f.length()).put("modified", f.lastModified()));
+        }
+        o.put("files", files);
+        return o;
+    }
+
+    private void configDownload(Req r, OutputStream out) throws Exception {
+        String clean = SetupManager.sanitizeConfigName(param(r, "name"));
+        if (clean == null) {
+            json(out, 200, err("bad name"));
+            return;
+        }
+        File f = new File(SetupManager.configsDir(c), clean);
+        if (!f.isFile()) {
+            send(out, 404, "text/plain", new byte[0], null);
+            return;
+        }
+        String head = "HTTP/1.1 200 OK\r\n"
+                + "Content-Type: application/json; charset=utf-8\r\n"
+                + "Content-Disposition: attachment; filename=\"" + clean + "\"\r\n"
+                + "Content-Length: " + f.length() + "\r\n"
+                + "Cache-Control: no-store\r\n"
+                + "Connection: close\r\n\r\n";
+        out.write(head.getBytes(StandardCharsets.US_ASCII));
+        try (InputStream in = new FileInputStream(f)) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        }
+        out.flush();
+    }
+
+    /** Uploads a config file into the TV's configs folder. The phone page
+     *  sends the file as a raw JSON body (the same raw-body pattern as
+     *  the photo endpoints); a multipart form body is also accepted, in
+     *  case a browser form posts it that way. The file is validated
+     *  before it is kept, never applied on upload, and never written
+     *  outside the configs folder. Oversized, non-JSON, and invalid
+     *  config files are refused and nothing is written. */
+    private JSONObject configUpload(Req r) throws Exception {
+        if (r.body.length > SetupManager.MAX_CONFIG_BYTES) return err("file too large");
+        String text = configUploadText(r);
+        if (text == null) return err("could not read upload");
+        if (text.length() > SetupManager.MAX_CONFIG_BYTES) return err("file too large");
+        String verr = SetupManager.validateConfigText(text);
+        if (verr != null) return err("invalid config: " + verr);
+        String wanted = SetupManager.sanitizeConfigName(param(r, "name"));
+        File dir = SetupManager.configsDir(c);
+        File f;
+        if (wanted != null) {
+            f = new File(dir, wanted);
+            if (f.exists()) {
+                String base = wanted.substring(0, wanted.length() - 5);
+                f = new File(dir, base + "-" + System.currentTimeMillis() + ".json");
+            }
+        } else {
+            String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(new java.util.Date());
+            f = new File(dir, "config-upload-" + stamp + ".json");
+            if (f.exists()) f = new File(dir, "config-upload-" + stamp + "-" + System.currentTimeMillis() + ".json");
+        }
+        try (java.io.FileWriter w = new java.io.FileWriter(f)) {
+            w.write(text);
+        } catch (Exception e) {
+            return err("could not save upload");
+        }
+        return ok().put("name", f.getName());
+    }
+
+    /** Extracts the uploaded file text: a raw body as-is, or the file
+     *  part of a multipart body. Returns null if neither parses. */
+    private String configUploadText(Req r) {
+        String ct = r.headers.getOrDefault("content-type", "");
+        if (ct.toLowerCase(Locale.US).contains("multipart/form-data")) {
+            try {
+                int bi = ct.indexOf("boundary=");
+                if (bi < 0) return null;
+                String boundary = ct.substring(bi + 9).trim();
+                if (boundary.startsWith("\"") && boundary.endsWith("\"") && boundary.length() > 1) {
+                    boundary = boundary.substring(1, boundary.length() - 1);
+                }
+                String body = new String(r.body, StandardCharsets.ISO_8859_1);
+                int hdrEnd = body.indexOf("\r\n\r\n");
+                if (hdrEnd < 0) return null;
+                int start = hdrEnd + 4;
+                int end = body.indexOf("\r\n--" + boundary, start);
+                if (end < 0) end = body.length();
+                String part = body.substring(start, end);
+                byte[] bytes = part.getBytes(StandardCharsets.ISO_8859_1);
+                return new String(bytes, StandardCharsets.UTF_8);
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
+        try {
+            return new String(r.body, StandardCharsets.UTF_8);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     // ---------------------------------------------------------------- wizard

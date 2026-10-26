@@ -137,6 +137,10 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         boolean kid;
     }
     private final List<Profile> profiles = new ArrayList<>();
+    // Set when Home starts the first-launch wizard, cleared in onPause, so
+    // the onResume gate below does not start a second wizard on the very
+    // first launch (onCreate already started one).
+    private boolean wizardLaunched;
     private int profileIdx;
     private String lastProfileJson = "";
     private static final int[] PROFILE_COLORS =
@@ -267,6 +271,18 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
             }
         }
         refreshProfilesIfChanged();
+        // Setup gate, gated so it never runs after setup is done: only
+        // while first launch is incomplete AND no user account exists, force
+        // the wizard, no matter how Home was reached (fresh start, HOME key,
+        // reopening the app). This closes the HOME bypass where resuming an
+        // already-alive Home skipped the wizard entirely. Once setup is
+        // done, first_launch_done is true and this is skipped outright, so
+        // updates and normal opens are untouched.
+        if (!wizardLaunched && !prefs.getBoolean("first_launch_done", false) && profiles.isEmpty()) {
+            wizardLaunched = true;
+            startActivity(new Intent(this, FirstLaunchActivity.class));
+            return;
+        }
         // Reload only if something actually changed while Home was away,
         // so returning from Netflix etc. does not flicker or re-render.
         int savedProfile = profiles.isEmpty() ? 0
@@ -289,6 +305,7 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
 
     @Override
     protected void onPause() {
+        wizardLaunched = false;
         // nothing ticks (and no wallpaper is decoded) while an app is in front
         main.removeCallbacks(minuteTick);
         main.removeCallbacks(nextWallpaper);
@@ -829,6 +846,7 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
             // run (or been skipped), later empty-profile opens go to the
             // full Settings wizard instead, so this never nags again.
             if (!prefs.getBoolean("first_launch_done", false)) {
+                wizardLaunched = true;
                 startActivity(new Intent(this, FirstLaunchActivity.class));
             } else {
                 startActivity(new Intent(this, WizardActivity.class));

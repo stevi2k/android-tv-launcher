@@ -48,6 +48,7 @@ public class WizardActivity extends Activity {
     private String currentTitle = "";
     private int helperToken = 0;
     private boolean helperDone = false;
+    private java.io.File configRenameFile = null;
     // Manual D-pad navigation: the old version relied on Android focus, but the
     // buttons had a solid background with no focus highlight, so moving with
     // the remote looked like nothing happened and the list did not scroll.
@@ -134,6 +135,7 @@ public class WizardActivity extends Activity {
             if (requestCode == 101 || requestCode == 102) showUsers();
             else if (requestCode == 103) showWeather();
             else if (requestCode == 104) showAllAppsDebloat();
+            else if (requestCode == 105) showExport();
             return;
         }
         String text = data.getStringExtra("text");
@@ -164,6 +166,13 @@ public class WizardActivity extends Activity {
         } else if (requestCode == 104) {
             textQuery = text == null ? "" : text;
             showAllAppsDebloat();
+        } else if (requestCode == 105) {
+            if (configRenameFile != null && text != null && !text.isEmpty()) {
+                String err = SetupManager.renameConfigFile(this, configRenameFile.getName(), text);
+                Toast.makeText(this, err == null ? "Renamed" : err, Toast.LENGTH_SHORT).show();
+            }
+            configRenameFile = null;
+            showExport();
         }
     }
 
@@ -207,6 +216,9 @@ public class WizardActivity extends Activity {
             return R.drawable.mdi_account;
         }
         String s = text.toLowerCase(java.util.Locale.US);
+        if (s.contains("import")) return R.drawable.mdi_download;
+        if (s.contains("export")) return R.drawable.mdi_upload;
+        if (s.contains("configuration")) return R.drawable.ic_settings;
         if (s.contains("backup")) return R.drawable.mdi_file_restore;
         if (s.contains("unpair")) return R.drawable.mdi_cellphone_off;
         if (s.contains("helper")) return R.drawable.mdi_signal_cellular_3;
@@ -437,9 +449,10 @@ public class WizardActivity extends Activity {
         }
         if (s.contains("tv info")) return tvIp();
         if (s.contains("restore")) {
-            String log = getSharedPreferences("home", MODE_PRIVATE).getString("wizard_disabled_log", "");
-            int n = 0;
-            if (log != null && !log.isEmpty()) { for (String x : log.split(",")) if (!x.trim().isEmpty()) n++; }
+            // Count what is actually disabled on the TV right now, not the
+            // wizard's own log: the log is wiped on a fresh install, so it
+            // said "None disabled" while the Restore list showed a bunch.
+            int n = setup.disabledApps().size();
             return n == 0 ? "None disabled" : n + " disabled";
         }
         if (s.contains("docks") || s.contains("hidden")) return "Per user";
@@ -454,7 +467,7 @@ public class WizardActivity extends Activity {
         items.add(new Item("Users", "No preset users: add your own here, or on the phone wizard page, then set each one's dock. Delete a user here too.", this::showUsers));
         items.add(new Item("First-launch setup again", "Run the guided first-launch setup again: a user, a dock, junk apps, and the home screen, step by step.", () -> startActivity(new Intent(this, FirstLaunchActivity.class))));
         items.add(new Item("Weather location", "Set the city for the home screen weather, or detect it from your IP. Nothing is baked in.", this::showWeather));
-        items.add(new Item("Set this launcher as home", "Turns off the stock home app, so this launcher opens when you press Home. Reversible in Restore.", this::showHome));
+        items.add(new Item("Set this launcher as home", "Disable all other launchers, so this launcher opens when you press Home. Reversible in Restore.", this::showHome));
         items.add(new Item("Restore disabled apps", "Shows every disabled app on the TV. Bring back one at a time, or all at once.", this::showRestore));
         items.add(new Item("How to pair your phone", "Step by step: open the TV's phone page, pair it once, then run the wizard from your phone.", this::showPairHelp));
         items.add(new Item("TV info and IP", "Your TV's IP address, Wi-Fi, model, and the phone pages to open for the remote and the wizard.", this::showTvInfo));
@@ -462,6 +475,7 @@ public class WizardActivity extends Activity {
         items.add(new Item("Unpair phones", "See every paired phone, unpair one, or unpair them all. A phone has to pair again before it can use the remote or wizard.", this::showUnpair));
         items.add(new Item("What does each option do?", "Plain explanations for every option in Settings, no jargon.", this::showHelp));
         items.add(new Item("Updates", "Check for a new version, see what changed, and update or skip it. Nothing installs on its own.", this::showUpdates, R.drawable.mdi_download));
+        items.add(new Item("Configurations", "Export and import your setup.", this::showConfigurations, R.drawable.ic_settings));
         items.add(new Item("Done", "Back to home.", this::finish, R.drawable.mdi_exit_to_app));
         show("Launcher Settings", "One install only: no PC, no second helper app. Debloat and set-home use the TV's own local debugging connection. Add users in Users, or on the phone wizard page.", items, null);
         maybeAutoCheckUpdates();
@@ -599,6 +613,155 @@ public class WizardActivity extends Activity {
         show("Backup " + backupDate(file), "Load it, or delete it. Remote Back returns to the backups list.", items, this::showBackups);
     }
 
+    // ------------------------------------------------------------ configurations (26.1.3)
+    // The file list is read here, only when one of these screens opens:
+    // never at home startup, never at the main menu, never in the
+    // background. Each screen is one line per row, like the rest of
+    // Settings, and Back uses the same saved-index map as every other
+    // screen, so it returns to the parent with its position saved.
+    // There is no share button on the TV: a TV has no share sheet, so
+    // sharing is done from the phone page, which is stated in the
+    // Export screen's footer line instead of a fake button.
+
+    private String configDate(java.io.File f) {
+        return new java.text.SimpleDateFormat("MMM d, yyyy h:mm a", java.util.Locale.US).format(new java.util.Date(f.lastModified()));
+    }
+
+    private String configSize(java.io.File f) {
+        long kb = Math.max(1, f.length() / 1024);
+        return kb + " KB";
+    }
+
+    private void showConfigurations() {
+        java.util.List<Item> items = new java.util.ArrayList<>();
+        items.add(new Item("Export", "Create and manage exports.", this::showExport, R.drawable.mdi_upload));
+        items.add(new Item("Import", "Apply a saved export.", this::showImport, R.drawable.mdi_download));
+        show("Configurations", "Export saves your setup to a file. Import applies a saved file.", items, this::showMenu);
+    }
+
+    private boolean configInfoDismissed() {
+        return getSharedPreferences("home", MODE_PRIVATE).getBoolean("config_info_dismissed", false);
+    }
+
+    private void dismissConfigInfo() {
+        getSharedPreferences("home", MODE_PRIVATE).edit().putBoolean("config_info_dismissed", true).apply();
+    }
+
+    private void doCreateExport() {
+        java.io.File f = SetupManager.exportConfig(this);
+        Toast.makeText(this, f == null ? "Export failed" : "Export saved: " + f.getName(), Toast.LENGTH_SHORT).show();
+        showExport();
+    }
+
+    private void showExportInfo() {
+        java.util.List<Item> items = new java.util.ArrayList<>();
+        items.add(new Item("OK, create export", "Create the export now.", this::doCreateExport, R.drawable.mdi_upload));
+        items.add(new Item("Don't show again", "Never show this again, create now.", () -> { dismissConfigInfo(); doCreateExport(); }, R.drawable.mdi_close));
+        show("About exports", "What an export does and does not include.", items, this::showExport);
+        resultView.setText("Exports save your profiles, docks, hidden apps, active profile, and weather location to a file on this TV. They do not include paired phones, the helper key, or wallpaper photos. Disabled apps are recorded in the file only, they are not turned off again on import. You can download, share, rename, or delete exports from the phone page.");
+    }
+
+    private void showImportInfo(java.io.File file) {
+        java.util.List<Item> items = new java.util.ArrayList<>();
+        items.add(new Item("OK, continue", "Go to the import confirmation.", () -> showImportConfirm(file), R.drawable.mdi_download));
+        items.add(new Item("Don't show again", "Never show this again, continue.", () -> { dismissConfigInfo(); showImportConfirm(file); }, R.drawable.mdi_close));
+        show("About imports", "What an import replaces, and how to undo it.", items, this::showImport);
+        resultView.setText("Importing replaces your profiles, docks, hidden apps, active profile, and weather with the ones in the file. Disabled apps in the file are recorded only, they will not be turned off again. Paired phones and wallpaper photos are not changed.");
+    }
+
+    private void showExport() {
+        java.util.List<Item> items = new java.util.ArrayList<>();
+        items.add(new Item("Create new export", "Save your setup now.", () -> {
+            if (configInfoDismissed()) doCreateExport(); else showExportInfo();
+        }, R.drawable.mdi_upload));
+        for (java.io.File f : SetupManager.configFiles(this)) {
+            final java.io.File file = f;
+            Item row = new Item(file.getName(), configDate(file) + "  ·  " + configSize(file),
+                    () -> showConfigAction(file), R.drawable.mdi_content_save);
+            row.withTrails(R.drawable.mdi_pencil, () -> startConfigRename(file),
+                    R.drawable.mdi_delete, () -> {
+                        if (SetupManager.deleteConfigFile(this, file.getName())) {
+                            Toast.makeText(this, "Export deleted", Toast.LENGTH_SHORT).show();
+                        } else {
+                            Toast.makeText(this, "Delete failed", Toast.LENGTH_SHORT).show();
+                        }
+                        showExport();
+                    });
+            items.add(row);
+        }
+        show("Export", "Tap a file to rename or delete it.", items, this::showConfigurations);
+        resultView.setText("Exports live on this TV. Open the phone page to download and share them.");
+    }
+
+    private void startConfigRename(java.io.File file) {
+        configRenameFile = file;
+        Intent i = new Intent(this, TextEntryActivity.class);
+        i.putExtra("title", "Rename export");
+        i.putExtra("hint", "Type the new name, then Save. The .json ending is kept.");
+        String name = file.getName();
+        if (name.endsWith(".json")) name = name.substring(0, name.length() - 5);
+        i.putExtra("initial", name);
+        startActivityForResult(i, 105);
+    }
+
+    private void showConfigAction(java.io.File file) {
+        java.util.List<Item> items = new java.util.ArrayList<>();
+        items.add(new Item("Rename this export", "Type a new name on the next screen.", () -> startConfigRename(file), R.drawable.mdi_pencil));
+        items.add(new Item("Delete this export", "Removes this file from the TV.", () -> {
+            if (SetupManager.deleteConfigFile(this, file.getName())) {
+                Toast.makeText(this, "Export deleted", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Delete failed", Toast.LENGTH_SHORT).show();
+            }
+            showExport();
+        }, R.drawable.mdi_delete));
+        show(file.getName(), "Rename it, or delete it.", items, this::showExport);
+    }
+
+    private void showImport() {
+        java.util.List<Item> items = new java.util.ArrayList<>();
+        for (java.io.File f : SetupManager.configFiles(this)) {
+            final java.io.File file = f;
+            Item row = new Item(file.getName(), configDate(file) + "  ·  " + configSize(file),
+                    () -> { if (configInfoDismissed()) showImportConfirm(file); else showImportInfo(file); }, R.drawable.mdi_download);
+            row.withTrails(R.drawable.mdi_download, () -> { if (configInfoDismissed()) showImportConfirm(file); else showImportInfo(file); }, 0, null);
+            items.add(row);
+        }
+        show("Import", "Tap a file to import it.", items, this::showConfigurations);
+        if (items.isEmpty()) resultView.setText("No exports on this TV yet. Create one in Export, or upload one from the phone page.");
+    }
+
+    private void showImportConfirm(java.io.File file) {
+        String summary;
+        try {
+            String text = SetupManager.readConfigFile(file);
+            String err = SetupManager.validateConfigText(text);
+            if (err != null) {
+                Toast.makeText(this, "Cannot import: " + err, Toast.LENGTH_LONG).show();
+                showImport();
+                return;
+            }
+            summary = SetupManager.describeConfig(new org.json.JSONObject(text));
+        } catch (Exception e) {
+            Toast.makeText(this, "Cannot read that file.", Toast.LENGTH_LONG).show();
+            showImport();
+            return;
+        }
+        java.util.List<Item> items = new java.util.ArrayList<>();
+        items.add(new Item("Import this configuration", "Replace your setup now.", () -> {
+            String result = SetupManager.applyConfigFile(this, file);
+            if (result != null && result.startsWith("ERR:")) {
+                Toast.makeText(this, result.substring(4), Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this, "Imported.", Toast.LENGTH_LONG).show();
+            }
+            showImport();
+        }, R.drawable.mdi_download));
+        items.add(new Item("Keep current configuration", "Do not import this file.", this::showImport, R.drawable.mdi_close));
+        show("Import " + file.getName() + "?", "Confirm below. Back cancels.", items, this::showImport);
+        resultView.setText(summary);
+    }
+
     private android.graphics.drawable.Drawable appIconFor(String pkg) {
         try { return getPackageManager().getApplicationIcon(pkg); }
         catch (Exception e) { return null; }
@@ -645,7 +808,7 @@ public class WizardActivity extends Activity {
         items.add(new Item("Docks", "The row of apps at the bottom of home. Each user gets their own dock, up to 5 apps. Open Users, tap a user, then Docks.", () -> resultView.setText("The row of apps at the bottom of home. Each user gets their own dock, up to 5 apps. Open Users, tap a user, then Docks.")));
         items.add(new Item("Hidden apps", "Apps a user should not see on home. They are not deleted, they move to that user's Hidden folder tile at the end of the Apps grid. Open Users, tap a user, then Hidden apps.", () -> resultView.setText("Apps a user should not see on home. They are not deleted, they move to that user's Hidden folder tile at the end of the Apps grid. Open Users, tap a user, then Hidden apps.")));
         items.add(new Item("Weather location", "The city used for the home screen weather. Set a city on the phone wizard page, or detect it from your IP in Weather location. No city is baked in.", () -> resultView.setText("The city used for the home screen weather. Set a city on the phone wizard page, or detect it from your IP in Weather location. No city is baked in.")));
-        items.add(new Item("Set this launcher as home", "Turns off the stock Google TV home app, so pressing Home opens this launcher instead. If you ever want the old home back, use Restore and bring the stock home app back.", () -> resultView.setText("Turns off the stock Google TV home app, so pressing Home opens this launcher instead. If you ever want the old home back, use Restore and bring the stock home app back.")));
+        items.add(new Item("Set this launcher as home", "Disable all other launchers, so pressing Home opens this launcher instead. If you ever want the old home back, use Restore and bring the stock home app back.", () -> resultView.setText("Disable all other launchers, so pressing Home opens this launcher instead. If you ever want the old home back, use Restore and bring the stock home app back.")));
         items.add(new Item("Restore disabled apps", "Lists every app on the TV that is currently disabled, including apps disabled before this wizard existed. Pick one to turn it back on, or Restore ALL to turn them all back on.", () -> resultView.setText("Lists every app on the TV that is currently disabled, including apps disabled before this wizard existed. Pick one to turn it back on, or Restore ALL to turn them all back on.")));
         items.add(new Item("How to pair your phone", "How to connect your phone to the TV's own webpage, so you can use the remote and the wizard from your phone without a PC.", () -> resultView.setText("How to connect your phone to the TV's own webpage, so you can use the remote and the wizard from your phone without a PC.")));
         items.add(new Item("TV info and IP", "The network details you need to open the phone pages: the TV's IP address, its Wi-Fi name, and the two URLs for the remote and the wizard.", () -> resultView.setText("The network details you need to open the phone pages: the TV's IP address, its Wi-Fi name, and the two URLs for the remote and the wizard.")));
@@ -743,7 +906,7 @@ public class WizardActivity extends Activity {
         for (SetupManager.Candidate cand : all) {
             items.add(new Item("[ ] " + cand.label, cand.pkg, () -> {
                 if (selected.contains(cand.pkg)) selected.remove(cand.pkg); else selected.add(cand.pkg);
-                if (selectedIdx < itemViews.size()) titleViews.get(selectedIdx).setText((selected.contains(cand.pkg) ? "[x] " : "[ ] ") + cand.label);
+                if (selectedIdx < itemViews.size()) titleViews.get(selectedIdx).setText((selected.contains(cand.pkg) ? "[✓] " : "[ ] ") + cand.label);
                 renderSelection();
             }));
         }
@@ -817,10 +980,10 @@ public class WizardActivity extends Activity {
         // stay where they are instead of jumping back to the top on every tap.
         List<Item> items = new ArrayList<>();
         for (SetupManager.Candidate cand : cands) {
-            items.add(new Item((selected.contains(cand.pkg) ? "[x] " : "[ ] ") + cand.label, cand.pkg, () -> {
+            items.add(new Item((selected.contains(cand.pkg) ? "[✓] " : "[ ] ") + cand.label, cand.pkg, () -> {
                 if (selected.contains(cand.pkg)) selected.remove(cand.pkg); else selected.add(cand.pkg);
                 // The row for the item just pressed is the selected row.
-                if (selectedIdx < itemViews.size()) titleViews.get(selectedIdx).setText((selected.contains(cand.pkg) ? "[x] " : "[ ] ") + cand.label);
+                if (selectedIdx < itemViews.size()) titleViews.get(selectedIdx).setText((selected.contains(cand.pkg) ? "[✓] " : "[ ] ") + cand.label);
                 renderSelection();
             }));
         }
@@ -1101,12 +1264,12 @@ public class WizardActivity extends Activity {
         for (AppRepo.App app : setup.allAppsLabelsOnly()) {
             if (hidden.contains(app.pkg)) continue;
             boolean inDock = dock.contains(app.pkg);
-            items.add(new Item((inDock ? "[x] " : "[ ] ") + app.label, app.pkg, () -> {
+            items.add(new Item((inDock ? "[✓] " : "[ ] ") + app.label, app.pkg, () -> {
                 if (dock.contains(app.pkg)) dock.remove(app.pkg);
                 else if (dock.size() < 5) dock.add(app.pkg);
                 else Toast.makeText(this, "Dock is full at 5 apps", Toast.LENGTH_SHORT).show();
                 setup.saveDock(idx, dock);
-                if (selectedIdx < itemViews.size()) titleViews.get(selectedIdx).setText((dock.contains(app.pkg) ? "[x] " : "[ ] ") + app.label);
+                if (selectedIdx < itemViews.size()) titleViews.get(selectedIdx).setText((dock.contains(app.pkg) ? "[✓] " : "[ ] ") + app.label);
                 renderSelection();
             }));
         }
@@ -1120,7 +1283,7 @@ public class WizardActivity extends Activity {
         java.util.List<Item> items = new java.util.ArrayList<>();
         for (AppRepo.App app : setup.allAppsLabelsOnly()) {
             boolean isHidden = hidden.contains(app.pkg);
-            items.add(new Item((isHidden ? "[x] " : "[ ] ") + app.label, app.pkg, () -> {
+            items.add(new Item((isHidden ? "[✓] " : "[ ] ") + app.label, app.pkg, () -> {
                 if (hidden.contains(app.pkg)) hidden.remove(app.pkg);
                 else {
                     hidden.add(app.pkg);
@@ -1131,7 +1294,7 @@ public class WizardActivity extends Activity {
                     if (dock.remove(app.pkg)) setup.saveDock(idx, dock);
                 }
                 setup.saveHidden(idx, hidden);
-                if (selectedIdx < itemViews.size()) titleViews.get(selectedIdx).setText((hidden.contains(app.pkg) ? "[x] " : "[ ] ") + app.label);
+                if (selectedIdx < itemViews.size()) titleViews.get(selectedIdx).setText((hidden.contains(app.pkg) ? "[✓] " : "[ ] ") + app.label);
                 renderSelection();
             }));
         }
@@ -1142,7 +1305,7 @@ public class WizardActivity extends Activity {
         List<java.util.Map<String, String>> homes = setup.homePackages();
         List<Item> items = new ArrayList<>();
         if (homes.isEmpty()) {
-            show("Set as home", "No other home app was found. This launcher may already be the only home, or the stock home is already disabled.", items, this::showMenu);
+            show("Set as home", "Disable all other launchers. No other home app was found. This launcher may already be the only home, or the stock home is already disabled. A stock home that is already disabled, like Google TV, shows in Restore disabled apps, not here.", items, this::showMenu);
             return;
         }
         for (java.util.Map<String, String> h : homes) {
@@ -1154,7 +1317,7 @@ public class WizardActivity extends Activity {
                 }).start();
             }));
         }
-        show("Set as home", "Disabling a stock home app makes this launcher the home. This is reversible: Restore disabled apps in Settings brings it back.", items, this::showMenu);
+        show("Set as home", "Disable all other launchers. This is reversible: Restore disabled apps in Settings brings them back.", items, this::showMenu);
     }
     // ---------------------------------------------------------------- updates
     // Version scheme: 26.1, 26.1.2, 26.2 ... 26 is the year, the second
