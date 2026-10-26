@@ -1,6 +1,6 @@
 {
-  "versionCode": 260103,
-  "versionName": "26.1.3",
-  "apkUrl": "https://github.com/stevi2k/android-tv-launcher/releases/download/v26.1.3/android-tv-launcher-26.1.3.apk",
-  "changelog": "Configurations export/import, no-skip first-launch wizard, Android 12 target, wizard gate, and Restore/Set as home fixes."
+  "versionCode": 260105,
+  "versionName": "26.1.5",
+  "apkUrl": "https://github.com/stevi2k/android-tv-launcher/releases/download/v26.1.5/android-tv-launcher-26.1.5.apk",
+  "changelog": "Recommended junk removal: 10 new living room apps and services, all recommended, no tiers."
 }
