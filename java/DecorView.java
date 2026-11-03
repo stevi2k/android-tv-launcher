@@ -235,30 +235,46 @@ final class DecorView extends View {
         c.drawPath(bulbPath, paint);
     }
 
-    /** A pile of leaves along the bottom edge: a brown mound plus scattered leaves on top. */
+    /** A pile of leaves along the bottom edge: darker leaves buried underneath, a
+     *  lumpy brown mound, then brighter leaves on top, so it reads as depth, not a flat row. */
     private void drawLeafPile(Canvas c) {
         int w = getWidth(), h = getHeight();
         if (w <= 0 || h <= 0) return;
-        // Mound base.
-        paint.setColor(0xFF6B3A1F);
+        // Back layer: bigger, darker leaves, half-buried at the bottom.
+        for (int i = 0; i < 40; i++) {
+            float x = (i * 71) % Math.max(1, w);
+            float y = h - Ui.dp(getContext(), 2f + ((i * 23) % 12));
+            float size = Ui.dp(getContext(), 9f + ((i * 13) % 7));
+            paint.setColor(LEAF_COLORS[i % LEAF_COLORS.length]);
+            paint.setAlpha(150);
+            c.save();
+            c.translate(x, y);
+            c.rotate((i * 61) % 360);
+            drawLeafShape(c, size);
+            c.restore();
+        }
+        // Lumpy mound base, taller in the middle of each segment than at its ends.
+        paint.setColor(0xFF5E3218);
         paint.setAlpha(255);
         pilePath.reset();
         pilePath.moveTo(0, h);
         pilePath.lineTo(0, h - Ui.dp(getContext(), 14f));
-        int seg = Ui.dp(getContext(), 120f);
+        int seg = Ui.dp(getContext(), 90f);
         for (int x = 0; x < w; x += seg) {
-            float peak = Ui.dp(getContext(), 10f + ((x / seg * 29) % 10));
+            float peak = Ui.dp(getContext(), 12f + ((x / seg * 29) % 14));
             float x1 = Math.min(w, x + seg);
-            pilePath.quadTo(x + seg / 2f, h - peak - Ui.dp(getContext(), 6f), x1, h - Ui.dp(getContext(), 12f));
+            pilePath.cubicTo(x + seg * 0.3f, h - peak - Ui.dp(getContext(), 8f),
+                    x + seg * 0.7f, h - peak, x1, h - Ui.dp(getContext(), 12f));
         }
         pilePath.lineTo(w, h);
         pilePath.close();
         c.drawPath(pilePath, paint);
-        // Scattered leaves, deterministic so the pile does not shimmer each frame.
+        // Front layer: smaller, brighter leaves scattered on top, deterministic
+        // so the pile does not shimmer each frame.
         for (int i = 0; i < 70; i++) {
             float x = (i * 53) % Math.max(1, w);
-            float y = h - Ui.dp(getContext(), 4f + ((i * 37) % 26));
-            float size = Ui.dp(getContext(), 6f + ((i * 17) % 6));
+            float y = h - Ui.dp(getContext(), 4f + ((i * 37) % 30));
+            float size = Ui.dp(getContext(), 5f + ((i * 17) % 9));
             paint.setColor(LEAF_COLORS[i % LEAF_COLORS.length]);
             paint.setAlpha(235);
             c.save();
@@ -270,27 +286,46 @@ final class DecorView extends View {
         paint.setAlpha(255);
     }
 
-    /** Snow drift along the bottom edge, and a snow cap on top of the dock band. */
+    /** Snow drift along the bottom edge: a shadowed back drift, a bright front
+     *  drift with lumps, and sparkles along its top edge. */
     private void drawSnowPiles(Canvas c) {
         int w = getWidth(), h = getHeight();
         if (w <= 0 || h <= 0) return;
-        paint.setColor(0xFFF2F7FF);
+        // Back drift: bluish shadow, taller, so the front drift has something to sit on.
+        paint.setColor(0xFFC7D9EE);
         paint.setAlpha(255);
-        // Bottom drift: a wavy top edge, thicker at the ends than in the middle.
+        drawDrift(c, w, h, 30f, 120f, 37);
+        // Front drift: bright white, lumpy top edge.
+        paint.setColor(0xFFF2F7FF);
+        drawDrift(c, w, h, 20f, 90f, 53);
+        // Sparkles resting on the front drift's top edge, deterministic positions.
+        paint.setColor(0xFFFFFFFF);
+        for (int i = 0; i < 40; i++) {
+            float x = (i * 97) % Math.max(1, w);
+            float y = h - Ui.dp(getContext(), 16f + ((i * 31) % 14));
+            paint.setAlpha(140 + ((i * 53) % 100));
+            c.drawCircle(x, y, Ui.dp(getContext(), 1.5f + ((i * 7) % 2)), paint);
+        }
+        paint.setAlpha(255);
+        // No snow cap on the dock band: removed Nov 2, 2026 at Steve's request.
+        // dockBandTop is kept as a no-op setter so HomeActivity needs no change.
+    }
+
+    /** One wavy snow drift: base height, segment width, and a seed for its lumps. */
+    private void drawDrift(Canvas c, int w, int h, float baseDp, float segDp, int seed) {
         pilePath.reset();
         pilePath.moveTo(0, h);
-        pilePath.lineTo(0, h - Ui.dp(getContext(), 22f));
-        int seg = Ui.dp(getContext(), 120f);
+        pilePath.lineTo(0, h - Ui.dp(getContext(), baseDp));
+        int seg = Ui.dp(getContext(), segDp);
         for (int x = 0; x < w; x += seg) {
-            float peak = Ui.dp(getContext(), 16f + ((x / seg * 37) % 16));
+            float peak = Ui.dp(getContext(), baseDp * 0.6f + ((x / Math.max(1, seg) * seed) % 16));
             float x1 = Math.min(w, x + seg);
-            pilePath.quadTo(x + seg / 2f, h - peak - Ui.dp(getContext(), 10f), x1, h - Ui.dp(getContext(), 20f));
+            pilePath.cubicTo(x + seg * 0.3f, h - peak - Ui.dp(getContext(), 10f),
+                    x + seg * 0.7f, h - peak, x1, h - Ui.dp(getContext(), baseDp * 0.9f));
         }
         pilePath.lineTo(w, h);
         pilePath.close();
         c.drawPath(pilePath, paint);
-        // No snow cap on the dock band: removed Nov 2, 2026 at Steve's request.
-        // dockBandTop is kept as a no-op setter so HomeActivity needs no change.
     }
 
     /**

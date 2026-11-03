@@ -293,6 +293,7 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
             startActivity(new Intent(this, FirstLaunchActivity.class));
             return;
         }
+        checkUpdateSetHome();
         // Reload only if something actually changed while Home was away,
         // so returning from Netflix etc. does not flicker or re-render.
         int savedProfile = profiles.isEmpty() ? 0
@@ -322,6 +323,7 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         wizardLaunched = false;
         // nothing ticks (and no wallpaper is decoded) while an app is in front
         if (decorView != null) decorView.stop();
+        main.removeCallbacks(secondTick);
         main.removeCallbacks(minuteTick);
         main.removeCallbacks(nextWallpaper);
         main.removeCallbacks(refreshSubs);
@@ -976,14 +978,79 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         updateCountdown();
     }
 
+    /**
+     * After an update, if another home app is still enabled, ask once whether to set
+     * this launcher as home. This is a popup, not a silent change: a home change is
+     * never made without the user tapping it. It runs once per version, and only
+     * after setup is done, so a fresh install (where the wizard handles home) and
+     * a TV that is already the only home never see it. Helper status must be
+     * Connected for the disable to work; if it is not, the result toast says so
+     * and the user can still do it from Settings > Set this launcher as home.
+     */
+    private void checkUpdateSetHome() {
+        if (prefs == null) return;
+        long currentCode;
+        try {
+            android.content.pm.PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+            currentCode = info.getLongVersionCode();
+        } catch (Exception e) { return; }
+        long seen = prefs.getLong("seen_version_code", 0);
+        if (seen == 0) { prefs.edit().putLong("seen_version_code", currentCode).apply(); return; }
+        if (seen == currentCode) return;
+        // Mark seen before showing, so the popup appears once per update, not on every resume.
+        prefs.edit().putLong("seen_version_code", currentCode).apply();
+        SetupManager setup = new SetupManager(this);
+        List<java.util.Map<String, String>> homes;
+        try { homes = setup.homePackages(); } catch (Exception e) { return; }
+        if (homes == null || homes.isEmpty()) return;
+        StringBuilder names = new StringBuilder();
+        for (java.util.Map<String, String> h : homes) {
+            if (names.length() > 0) names.append(", ");
+            names.append(h.get("label"));
+        }
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Set as launcher?")
+                .setMessage("This launcher updated. Set it as your home so pressing Home opens it? This disables: " + names + ". You can bring them back in Settings > Restore disabled apps.")
+                .setPositiveButton("Set as launcher", (d, w) -> new Thread(() -> {
+                    LocalShell shell = new LocalShell(this);
+                    StringBuilder result = new StringBuilder();
+                    for (java.util.Map<String, String> h : homes) {
+                        String r = setup.setHome(shell, h.get("pkg"));
+                        if (result.length() > 0) result.append("\n");
+                        result.append(r);
+                    }
+                    String msg = result.toString();
+                    runOnUiThread(() -> android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_LONG).show());
+                }).start())
+                .setNegativeButton("Not now", null)
+                .setCancelable(true)
+                .show();
+    }
+
     private void updateCountdown() {
         if (countdownView == null) return;
         if (currentTheme == Themes.CHRISTMAS) {
             countdownView.setText(Themes.christmasCountdownText());
             countdownView.setVisibility(View.VISIBLE);
+            // Christmas Eve only: tick every second so the H:M:S countdown moves.
+            if (Themes.daysToChristmas() == 1) scheduleSecond();
+            else main.removeCallbacks(secondTick);
         } else {
             countdownView.setVisibility(View.GONE);
+            main.removeCallbacks(secondTick);
         }
+    }
+
+    /** One-second tick, Christmas Eve only, so the countdown counts down live. */
+    private final Runnable secondTick = () -> {
+        updateCountdown();
+        if (currentTheme == Themes.CHRISTMAS && Themes.daysToChristmas() == 1) scheduleSecond();
+    };
+
+    private void scheduleSecond() {
+        main.removeCallbacks(secondTick);
+        long now = System.currentTimeMillis();
+        main.postDelayed(secondTick, 1000 - now % 1000 + 20);
     }
 
     // ---------------------------------------------------------------- weather

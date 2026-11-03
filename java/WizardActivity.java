@@ -448,6 +448,8 @@ public class WizardActivity extends Activity {
             return (place == null || place.isEmpty()) ? "Not set" : place;
         }
         if (s.contains("themes")) return Themes.name(this);
+        if (s.contains("performance overlay"))
+            return getSharedPreferences("home", MODE_PRIVATE).getBoolean("performance_overlay", false) ? "On" : "Off";
         if (s.contains("tv info")) return tvIp();
         if (s.contains("restore")) {
             // Count what is actually disabled on the TV right now, not the
@@ -474,6 +476,7 @@ public class WizardActivity extends Activity {
         items.add(new Item("TV info and IP", "Your TV's IP address, Wi-Fi, model, and the phone pages to open for the remote and the wizard.", this::showTvInfo));
         items.add(new Item("Wallpaper photos", "Photos already on this TV: show one now, or delete it. New photos come from a phone, they cannot be taken on the TV itself.", this::showPhotos));
         items.add(new Item("Themes", "Seasonal looks for home: colours, plus falling snow, leaves or petals, and Christmas lights.", this::showThemes, R.drawable.mdi_image));
+        items.add(new Item("Performance overlay", "Show CPU and RAM over everything, even in other apps. Toggle on or off.", this::togglePerformanceOverlay, R.drawable.mdi_monitor_cellphone_star));
         items.add(new Item("Unpair phones", "See every paired phone, unpair one, or unpair them all. A phone has to pair again before it can use the remote or wizard.", this::showUnpair));
         items.add(new Item("What does each option do?", "Plain explanations for every option in Settings, no jargon.", this::showHelp));
         items.add(new Item("Updates", "Check for a new version, see what changed, and update or skip it. Nothing installs on its own.", this::showUpdates, R.drawable.mdi_download));
@@ -1120,6 +1123,42 @@ public class WizardActivity extends Activity {
             }));
         }
         show("Wallpaper photos", photos.size() + " photos on this TV. Pick one to show or delete it.", items, this::showMenu);
+    }
+
+    /** Settings > Performance overlay: a simple on/off toggle. On shows a small
+     *  CPU/RAM pill in the top-right corner over Home and over other apps, updated
+     *  once a second, and it does not take touches, so it never blocks the remote.
+     *  Off hides it. It needs Display over other apps; if that is not granted yet,
+     *  the toggle opens the system page for it and the user toggles again after allowing. */
+    private void togglePerformanceOverlay() {
+        android.content.SharedPreferences home = getSharedPreferences("home", MODE_PRIVATE);
+        boolean on = home.getBoolean("performance_overlay", false);
+        if (on) {
+            home.edit().putBoolean("performance_overlay", false).apply();
+            Intent i = new Intent(this, PhoneService.class);
+            i.setAction("overlay_off");
+            startService(i);
+            Toast.makeText(this, "Performance overlay off", Toast.LENGTH_SHORT).show();
+            showMenu();
+            return;
+        }
+        if (!android.provider.Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "Allow Display over other apps, then toggle this again", Toast.LENGTH_LONG).show();
+            try {
+                Intent i = new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        android.net.Uri.parse("package:" + getPackageName()));
+                startActivity(i);
+            } catch (Exception e) {
+                Toast.makeText(this, "Could not open overlay settings", Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
+        home.edit().putBoolean("performance_overlay", true).apply();
+        Intent i = new Intent(this, PhoneService.class);
+        i.setAction("overlay_on");
+        startService(i);
+        Toast.makeText(this, "Performance overlay on", Toast.LENGTH_SHORT).show();
+        showMenu();
     }
 
     /** Settings > Themes: one row per preset, checkmark on the current one. Picking one saves it; Home applies it when you go back. */

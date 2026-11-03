@@ -122,9 +122,34 @@ final class Themes {
     }
 
     static String christmasCountdownText() {
-        int days = daysToChristmas();
+        return christmasCountdownText(java.util.Calendar.getInstance());
+    }
+
+    /** Countdown text for a given moment, so the Christmas Eve / hour cases are testable. */
+    static String christmasCountdownText(java.util.Calendar now) {
+        java.util.Calendar today = (java.util.Calendar) now.clone();
+        today.set(java.util.Calendar.HOUR_OF_DAY, 0);
+        today.set(java.util.Calendar.MINUTE, 0);
+        today.set(java.util.Calendar.SECOND, 0);
+        today.set(java.util.Calendar.MILLISECOND, 0);
+        java.util.Calendar xmas = (java.util.Calendar) now.clone();
+        xmas.set(java.util.Calendar.HOUR_OF_DAY, 0);
+        xmas.set(java.util.Calendar.MINUTE, 0);
+        xmas.set(java.util.Calendar.SECOND, 0);
+        xmas.set(java.util.Calendar.MILLISECOND, 0);
+        xmas.set(java.util.Calendar.MONTH, java.util.Calendar.DECEMBER);
+        xmas.set(java.util.Calendar.DAY_OF_MONTH, 25);
+        if (xmas.before(today)) xmas.add(java.util.Calendar.YEAR, 1);
+        long diffDays = xmas.getTimeInMillis() - today.getTimeInMillis();
+        int days = (int) (diffDays / (24L * 60 * 60 * 1000));
         if (days == 0) return "Merry Christmas!";
-        if (days == 1) return "1 day until Christmas";
+        if (days == 1) {
+            // Christmas Eve: a live hours:minutes:seconds countdown to midnight, not days.
+            long totalSeconds = (xmas.getTimeInMillis() - now.getTimeInMillis()) / 1000L;
+            if (totalSeconds <= 0) return "Merry Christmas!";
+            long h = totalSeconds / 3600, m = (totalSeconds % 3600) / 60, s = totalSeconds % 60;
+            return "Christmas Eve! " + String.format("%02d:%02d:%02d", h, m, s) + " until Christmas";
+        }
         return days + " days until Christmas";
     }
 }
