@@ -1,6 +1,6 @@
 {
-  "versionCode": 260115,
-  "versionName": "26.1.15",
-  "apkUrl": "https://github.com/stevi2k/android-tv-launcher/releases/download/v26.1.15/android-tv-launcher-26.1.15.apk",
-  "changelog": "Seasonal themes in Settings > Themes: Default, Fall, Christmas, Winter, Spring, each with its own wallpaper. Fall has detailed leaves and a leaf pile along the bottom. Christmas has string lights, snow, and a countdown to Christmas. Winter has a grey/whitish dock. Spring has a pinkish dock and pink/white blossom petals. Focus lights are on the top edge only."
+  "versionCode": 260116,
+  "versionName": "26.1.16",
+  "apkUrl": "https://github.com/stevi2k/android-tv-launcher/releases/download/v26.1.16/android-tv-launcher-26.1.16.apk",
+  "changelog": "Christmas Eve live countdown: on December 24 the Christmas theme pill counts down in hours, minutes, and seconds, and December 25 reads Merry Christmas. Snow and leaf piles are more realistic, with layered drifts and leaves. After an update, a popup asks once whether to set this launcher as home. New Settings toggle: Performance overlay shows CPU and RAM over Home and other apps."
 }
