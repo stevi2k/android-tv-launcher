@@ -1,6 +1,6 @@
 {
-  "versionCode": 260105,
-  "versionName": "26.1.5",
-  "apkUrl": "https://github.com/stevi2k/android-tv-launcher/releases/download/v26.1.5/android-tv-launcher-26.1.5.apk",
-  "changelog": "Recommended junk removal: 10 new living room apps and services, all recommended, no tiers."
+  "versionCode": 260115,
+  "versionName": "26.1.15",
+  "apkUrl": "https://github.com/stevi2k/android-tv-launcher/releases/download/v26.1.15/android-tv-launcher-26.1.15.apk",
+  "changelog": "Seasonal themes in Settings > Themes: Default, Fall, Christmas, Winter, Spring, each with its own wallpaper. Fall has detailed leaves and a leaf pile along the bottom. Christmas has string lights, snow, and a countdown to Christmas. Winter has a grey/whitish dock. Spring has a pinkish dock and pink/white blossom petals. Focus lights are on the top edge only."
 }
