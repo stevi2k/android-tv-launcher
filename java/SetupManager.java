@@ -70,6 +70,24 @@ final class SetupManager {
         CANDIDATES.add(new Candidate("Sony customer support", "com.sony.dtv.customersupport", true));
         CANDIDATES.add(new Candidate("Sony Smart Help", "com.sony.dtv.smarthelp", true));
         CANDIDATES.add(new Candidate("Eco Dashboard", "com.sony.dtv.ecodashboard", true));
+        CANDIDATES.add(new Candidate("TCL hotel menu", "com.tcl.hotelmenu", true));
+        CANDIDATES.add(new Candidate("TCL initial setup", "com.tcl.initsetup", false));
+        CANDIDATES.add(new Candidate("TCL exhibit / demo", "com.tcl.exhibit", true));
+        CANDIDATES.add(new Candidate("TCL log kit", "com.tcl.logkit", true));
+        CANDIDATES.add(new Candidate("TCL factory view", "com.tcl.factory.view", true));
+        CANDIDATES.add(new Candidate("TCL partner customizer", "com.tcl.partnercustomizer", true));
+        CANDIDATES.add(new Candidate("TCL eSticker", "com.tcl.esticker", true));
+        CANDIDATES.add(new Candidate("TCL Media Center", "com.tcl.ui_mediaCenter", true));
+        CANDIDATES.add(new Candidate("TCL Home Dashboard", "com.tcl.dashboard", true));
+        CANDIDATES.add(new Candidate("TCL Message Box", "com.tcl.messagebox", true));
+        CANDIDATES.add(new Candidate("TCL User Center", "com.tcl.usercenter", true));
+        CANDIDATES.add(new Candidate("TCL Ocean instructions", "com.tcl.ocean.instructions", true));
+        CANDIDATES.add(new Candidate("TCLtv+", "com.tcl.tv.plus", true));
+        CANDIDATES.add(new Candidate("TCL Channel Plus", "com.tcl.channelplus", true));
+        CANDIDATES.add(new Candidate("TCL Smart Alexa", "com.tcl.smartalexa", true));
+        CANDIDATES.add(new Candidate("TCL GameBar", "com.tcl.gamebar", true));
+        CANDIDATES.add(new Candidate("TCL Home Passive", "com.tcl.tv.tclhome_passive", true));
+        CANDIDATES.add(new Candidate("TCL TV", "com.tcl.tv", true));
     }
 
     /** Packages the wizard must never offer to disable. */

@@ -254,7 +254,7 @@ public class WizardActivity extends Activity {
         if (s.contains("tv info") || s.contains("ip address")) return R.drawable.mdi_information;
         if (s.contains("phone")) return R.drawable.mdi_cellphone;
         if (s.contains("pair")) return R.drawable.mdi_cellphone;
-        if (s.contains("wallpaper") || s.contains("photo")) return R.drawable.mdi_image;
+        if (s.contains("wallpaper") || s.contains("photo") || s.contains("theme")) return R.drawable.mdi_image;
         if (s.contains("input") || s.contains("source") || s.contains("television") || s.contains("tv model")) return R.drawable.mdi_television;
         if (s.contains("search")) return R.drawable.mdi_magnify;
         if (s.contains("clear")) return R.drawable.mdi_close;
@@ -447,6 +447,7 @@ public class WizardActivity extends Activity {
             String place = setup.weatherPlace();
             return (place == null || place.isEmpty()) ? "Not set" : place;
         }
+        if (s.contains("themes")) return Themes.name(this);
         if (s.contains("tv info")) return tvIp();
         if (s.contains("restore")) {
             // Count what is actually disabled on the TV right now, not the
@@ -472,6 +473,7 @@ public class WizardActivity extends Activity {
         items.add(new Item("How to pair your phone", "Step by step: open the TV's phone page, pair it once, then run the wizard from your phone.", this::showPairHelp));
         items.add(new Item("TV info and IP", "Your TV's IP address, Wi-Fi, model, and the phone pages to open for the remote and the wizard.", this::showTvInfo));
         items.add(new Item("Wallpaper photos", "Photos already on this TV: show one now, or delete it. New photos come from a phone, they cannot be taken on the TV itself.", this::showPhotos));
+        items.add(new Item("Themes", "Seasonal looks for home: colours, plus falling snow, leaves or petals, and Christmas lights.", this::showThemes, R.drawable.mdi_image));
         items.add(new Item("Unpair phones", "See every paired phone, unpair one, or unpair them all. A phone has to pair again before it can use the remote or wizard.", this::showUnpair));
         items.add(new Item("What does each option do?", "Plain explanations for every option in Settings, no jargon.", this::showHelp));
         items.add(new Item("Updates", "Check for a new version, see what changed, and update or skip it. Nothing installs on its own.", this::showUpdates, R.drawable.mdi_download));
@@ -812,6 +814,7 @@ public class WizardActivity extends Activity {
         items.add(new Item("Restore disabled apps", "Lists every app on the TV that is currently disabled, including apps disabled before this wizard existed. Pick one to turn it back on, or Restore ALL to turn them all back on.", () -> resultView.setText("Lists every app on the TV that is currently disabled, including apps disabled before this wizard existed. Pick one to turn it back on, or Restore ALL to turn them all back on.")));
         items.add(new Item("How to pair your phone", "How to connect your phone to the TV's own webpage, so you can use the remote and the wizard from your phone without a PC.", () -> resultView.setText("How to connect your phone to the TV's own webpage, so you can use the remote and the wizard from your phone without a PC.")));
         items.add(new Item("TV info and IP", "The network details you need to open the phone pages: the TV's IP address, its Wi-Fi name, and the two URLs for the remote and the wizard.", () -> resultView.setText("The network details you need to open the phone pages: the TV's IP address, its Wi-Fi name, and the two URLs for the remote and the wizard.")));
+        items.add(new Item("Themes", "Seasonal looks for home: background and dock colours, plus falling snow, leaves or petals, and Christmas lights on the Christmas theme. Decorations only animate while home is on screen.", () -> resultView.setText("Seasonal looks for home: background and dock colours, plus falling snow, leaves or petals, and Christmas lights on the Christmas theme. Decorations only animate while home is on screen.")));
         show("What does each option do?", "Tap an option below to read what it does. Back returns to Settings.", items, this::showMenu);
     }
 
@@ -1117,6 +1120,22 @@ public class WizardActivity extends Activity {
             }));
         }
         show("Wallpaper photos", photos.size() + " photos on this TV. Pick one to show or delete it.", items, this::showMenu);
+    }
+
+    /** Settings > Themes: one row per preset, checkmark on the current one. Picking one saves it; Home applies it when you go back. */
+    private void showThemes() {
+        List<Item> items = new ArrayList<>();
+        int current = Themes.current(this);
+        for (int i = 0; i < Themes.NAMES.length; i++) {
+            final int theme = i;
+            String label = (i == current ? "[✓] " : "") + Themes.NAMES[i];
+            items.add(new Item(label, Themes.DESCRIPTIONS[i], () -> {
+                Themes.set(this, theme);
+                Toast.makeText(this, "Theme set to " + Themes.NAMES[theme], Toast.LENGTH_SHORT).show();
+                showThemes();
+            }, R.drawable.mdi_image));
+        }
+        show("Themes", "Pick a look for home. Decorations only animate while home is on screen, never in the background.", items, this::showMenu);
     }
 
     private void showUnpair() {

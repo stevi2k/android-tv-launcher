@@ -84,7 +84,8 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
     private int W, H, side, bandTop, gridTop, rowH, dockCell, dockCardW;
 
     private FrameLayout root, content;
-    private TextView weatherText, clock, date, dockTitle, wifiText;
+    private TextView weatherText, clock, date, countdownView, dockTitle, wifiText;
+    private boolean themeWallpaper;
 
     // weather (Open-Meteo, no key): replaces the greeting line
     private String weather = "";
@@ -159,6 +160,10 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
     private GlassHighlight highlight;
     private View glow;
     private GradientDrawable glowBg;
+    // Theme (Settings > Themes): dock-band view, seasonal decoration overlay, and the theme buildUi used.
+    private View bandView;
+    private DecorView decorView;
+    private int currentTheme;
     private RecyclerView dockRv, gridRv;
     private TileAdapter dockAdapter, gridAdapter;
     private InputsMenu inputs;
@@ -266,8 +271,13 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         if (homeBitmapsFreed) {
             homeBitmapsFreed = false;
             loadApps();
-            if (wpViews[0] != null && !wallpapers.isEmpty()) {
-                wpViews[0].setImageBitmap(loadWallpaper(wallpapers.get(wpIdx % wallpapers.size())));
+            if (wpViews[0] != null) {
+                if (themeWallpaper) {
+                    int themeWp = Themes.wallpaperRes(this, currentTheme);
+                    if (themeWp != 0) wpViews[0].setImageBitmap(loadWallpaper(themeWp));
+                } else if (!wallpapers.isEmpty()) {
+                    wpViews[0].setImageBitmap(loadWallpaper(wallpapers.get(wpIdx % wallpapers.size())));
+                }
             }
         }
         refreshProfilesIfChanged();
@@ -293,6 +303,10 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         }
         if (!appsFingerprint().equals(lastAppsFingerprint)) loadApps();
         if (inputs.isOpen()) inputs.close();
+        // A theme picked in Settings while Home was paused: apply it now, no restart needed.
+        int pickedTheme = Themes.current(this);
+        if (pickedTheme != currentTheme) applyTheme(pickedTheme);
+        else if (decorView != null) decorView.start();
         scheduleMinute();
         scheduleWallpaper();
         fetchWeather.run();
@@ -307,6 +321,7 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
     protected void onPause() {
         wizardLaunched = false;
         // nothing ticks (and no wallpaper is decoded) while an app is in front
+        if (decorView != null) decorView.stop();
         main.removeCallbacks(minuteTick);
         main.removeCallbacks(nextWallpaper);
         main.removeCallbacks(refreshSubs);
@@ -526,8 +541,9 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         rowH = gridCardH + dp(42);
         gridTop = H + dp(56);
 
+        currentTheme = Themes.current(this);
         root = new FrameLayout(this);
-        root.setBackgroundColor(0xFF000000);
+        root.setBackgroundColor(Themes.background(currentTheme));
         root.setClipChildren(false);
 
         boolean useWallpaper = getResources().getBoolean(R.bool.use_wallpaper);
@@ -539,7 +555,13 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
                 wpViews[i].setAlpha(i == 0 ? 1f : 0f);
                 root.addView(wpViews[i], new FrameLayout.LayoutParams(-1, -1));
             }
-            if (!wallpapers.isEmpty()) {
+            int themeWp = Themes.wallpaperRes(this, currentTheme);
+            if (themeWp != 0) {
+                // A theme brings its own wallpaper and pauses the photo rotation.
+                themeWallpaper = true;
+                wpViews[0].setImageBitmap(loadWallpaper(themeWp));
+                wpViews[1].setImageDrawable(null);
+            } else if (!wallpapers.isEmpty()) {
                 wpIdx = prefs.getInt("wallpaper", 0) % wallpapers.size();
                 wpViews[0].setImageBitmap(loadWallpaper(wallpapers.get(wpIdx)));
             }
@@ -568,9 +590,10 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         int glowCx = side + dp(110), glowCy = bandTop - dp(44);
         content.addView(glow, at(dp(900), dp(600), glowCx - dp(360), glowCy - dp(300)));
 
-        // dock band
+        // dock band, tinted by the current theme
         View band = new View(this);
-        band.setBackground(Ui.rounded(useWallpaper ? 0x8C141416 : 0xFF141416, dp(28), dp(1), 0x14FFFFFF));
+        bandView = band;
+        band.setBackground(Ui.rounded(useWallpaper ? (0x8C000000 | Themes.bandRgb(currentTheme)) : (0xFF000000 | Themes.bandRgb(currentTheme)), dp(28), dp(1), 0x14FFFFFF));
         content.addView(band, at(W - 2 * side, bandH, side, bandTop));
 
         // the single glass highlight (below tiles and pills)
@@ -593,6 +616,14 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-2, -2);
         dlp.topMargin = dp(6);
         tl.addView(date, dlp);
+        // Christmas only: a small box under the date counting down to Christmas Day.
+        countdownView = Ui.text(this, 500, 16, 0xFFFFFFFF);
+        countdownView.setBackground(Ui.rounded(0xCC1B3A26, dp(16), dp(1), 0x33FFFFFF));
+        countdownView.setPadding(dp(14), dp(6), dp(14), dp(6));
+        LinearLayout.LayoutParams cdlp = new LinearLayout.LayoutParams(-2, -2);
+        cdlp.topMargin = dp(10);
+        tl.addView(countdownView, cdlp);
+        updateCountdown();
         content.addView(tl, at(W / 2, -2, side, dp(34)));
 
         // pills: Inputs, Wi-Fi, Settings, current profile (opens the picker)
@@ -671,9 +702,58 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         inputs = new InputsMenu(this);
         root.addView(inputs.panel);
 
+        // Seasonal decorations, on top of everything but never intercepting input.
+        decorView = new DecorView(this);
+        decorView.setKind(Themes.decor(currentTheme));
+        decorView.setDockBandTop(currentTheme == Themes.CHRISTMAS || currentTheme == Themes.WINTER
+                ? bandTop : -1);
+        root.addView(decorView, new FrameLayout.LayoutParams(-1, -1));
+
         buildPicker();
         buildFolder(gridCell, gridCardW, gridCardH);
         buildEditMenu();
+    }
+
+    /** Apply a newly picked theme without restarting Home: background, dock band, decorations. */
+    private void applyTheme(int theme) {
+        currentTheme = theme;
+        if (root != null) root.setBackgroundColor(Themes.background(theme));
+        if (bandView != null) {
+            boolean useWallpaper = getResources().getBoolean(R.bool.use_wallpaper);
+            bandView.setBackground(Ui.rounded(useWallpaper ? (0x8C000000 | Themes.bandRgb(theme)) : (0xFF000000 | Themes.bandRgb(theme)), dp(28), dp(1), 0x14FFFFFF));
+        }
+        updateCountdown();
+        // Theme wallpaper: a theme brings its own photo and pauses rotation;
+        // Default hands the screen back to the user's photo rotation.
+        if (wpViews[0] != null) {
+            int themeWp = Themes.wallpaperRes(this, theme);
+            if (themeWp != 0) {
+                themeWallpaper = true;
+                main.removeCallbacks(nextWallpaper);
+                wpFront = 0;
+                wpViews[0].setAlpha(1f);
+                wpViews[0].setImageBitmap(loadWallpaper(themeWp));
+                if (wpViews[1] != null) { wpViews[1].setAlpha(0f); wpViews[1].setImageDrawable(null); }
+            } else if (themeWallpaper) {
+                themeWallpaper = false;
+                findWallpapers();
+                if (!wallpapers.isEmpty()) {
+                    wpIdx = prefs.getInt("wallpaper", 0) % wallpapers.size();
+                    wpViews[0].setImageBitmap(loadWallpaper(wallpapers.get(wpIdx)));
+                    scheduleWallpaper();
+                } else {
+                    wpViews[0].setImageDrawable(null);
+                }
+            }
+        }
+        if (decorView != null) {
+            decorView.stop();
+            decorView.setKind(Themes.decor(theme));
+            if (theme != Themes.CHRISTMAS) decorView.setFocusRect(null);
+            decorView.setDockBandTop(theme == Themes.CHRISTMAS || theme == Themes.WINTER
+                    ? bandTop + content.getTranslationY() : -1);
+            decorView.start();
+        }
     }
 
     private FrameLayout.LayoutParams at(int w, int h, int x, int y) {
@@ -893,6 +973,17 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         boolean h24 = DateFormat.is24HourFormat(this);
         clock.setText(DateFormat.format(h24 ? "H:mm" : "h:mm", now));
         date.setText(DateFormat.format("EEEE, d MMMM", now));
+        updateCountdown();
+    }
+
+    private void updateCountdown() {
+        if (countdownView == null) return;
+        if (currentTheme == Themes.CHRISTMAS) {
+            countdownView.setText(Themes.christmasCountdownText());
+            countdownView.setVisibility(View.VISIBLE);
+        } else {
+            countdownView.setVisibility(View.GONE);
+        }
     }
 
     // ---------------------------------------------------------------- weather
@@ -1020,7 +1111,7 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
     /** The phone page added, replaced, deleted or asked to show a photo: update the rotation now. */
     @Override
     public void onWallpapersChanged(java.io.File added) {
-        if (wpViews[0] == null) return;
+        if (wpViews[0] == null || themeWallpaper) return;
         Object current = wallpapers.isEmpty() ? null : wallpapers.get(Math.min(wpIdx, wallpapers.size() - 1));
         findWallpapers();
         if (wallpapers.isEmpty()) {
@@ -1082,7 +1173,7 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
 
     private void scheduleWallpaper() {
         main.removeCallbacks(nextWallpaper);
-        if (wallpapers.size() < 2 || wpViews[0] == null) return;
+        if (themeWallpaper || wallpapers.size() < 2 || wpViews[0] == null) return;
         int secs = Math.max(5, getResources().getInteger(R.integer.wallpaper_seconds));
         main.postDelayed(nextWallpaper, secs * 1000L);
     }
@@ -1732,6 +1823,12 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
 
         RectF target = targetRect();
         if (target != null) moveHighlight(target, animate && hlPlaced);
+        // Snow cap rides with the dock band once the scroll settles.
+        main.postDelayed(() -> {
+            if (decorView != null) decorView.setDockBandTop(
+                    currentTheme == Themes.CHRISTMAS || currentTheme == Themes.WINTER
+                            ? bandTop + content.getTranslationY() : -1);
+        }, 400);
     }
 
     private float titleAlpha() {
@@ -1786,6 +1883,16 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
     private void placeHighlight(RectF r, float radius) {
         hlRadiusNow = radius;
         highlight.set(r, radius);
+        // Christmas focus lights frame the same tile, in screen coordinates:
+        // the highlight lives inside the scrolling content, so shift by its translation.
+        if (decorView != null) {
+            if (currentTheme == Themes.CHRISTMAS) {
+                float shift = content == null ? 0 : content.getTranslationY();
+                decorView.setFocusRect(new RectF(r.left, r.top + shift, r.right, r.bottom + shift));
+            } else {
+                decorView.setFocusRect(null);
+            }
+        }
     }
 
     private void setGlow(int color, boolean animate) {
