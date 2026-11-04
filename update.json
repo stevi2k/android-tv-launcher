@@ -1,6 +1,7 @@
 {
-  "versionCode": 260116,
-  "versionName": "26.1.16",
-  "apkUrl": "https://github.com/stevi2k/android-tv-launcher/releases/download/v26.1.16/android-tv-launcher-26.1.16.apk",
-  "changelog": "Christmas Eve live countdown: on December 24 the Christmas theme pill counts down in hours, minutes, and seconds, and December 25 reads Merry Christmas. Snow and leaf piles are more realistic, with layered drifts and leaves. After an update, a popup asks once whether to set this launcher as home. New Settings toggle: Performance overlay shows CPU and RAM over Home and other apps."
+  "versionCode": 260117,
+  "versionName": "26.1.17",
+  "apkUrl": "https://github.com/stevi2k/android-tv-launcher/releases/download/v26.1.17/android-tv-launcher-26.1.17.apk",
+  "sha256": "30088ae5864dbbf2355d4259ac285780220aebf13cc2dbd8c287972e34f9cbf7",
+  "changelog": "Audit fixes: update downloads now verify SHA-256 and only accept GitHub download hosts, with a 10 MB cap; DecorView snow/leaf piles are pre-built once per size instead of rebuilt every frame; config imports are capped (10 profiles, 50 dock/hidden items each, 40-char names, no duplicates); phone token is required in the X-Token header for state-changing endpoints (Siri key/text GETs still accept the query token); shared configs no longer export weather lat/lon; Settings set-as-home now shows the result as a Toast and refreshes the list."
 }
