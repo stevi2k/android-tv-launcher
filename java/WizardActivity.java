@@ -853,6 +853,7 @@ public class WizardActivity extends Activity {
                 if (token != helperToken || helperDone) return;
                 helperDone = true;
                 List<Item> items = new ArrayList<>();
+                items.add(new Item("Network debugging is on - keep it that way only on your own Wi-Fi", "This launcher needs network debugging to turn apps off and set home. Never accept an Allow USB debugging prompt from a device you do not recognise.", () -> {}).noArrow());
                 items.add(new Item("Open Developer settings", () -> openDeveloperSettings()));
                 items.add(new Item("Check again", this::showHelper));
                 show("Helper status: " + (ready ? "Connected" : "Disconnected"), msg, items, this::showMenu);
@@ -1371,7 +1372,11 @@ public class WizardActivity extends Activity {
             items.add(new Item("Disable " + h.get("label") + " (" + pkg + ")", () -> {
                 new Thread(() -> {
                     String r = setup.setHome(shell, pkg);
-                    runOnUiThread(() -> resultView.setText(r));
+                    runOnUiThread(() -> {
+                        Toast.makeText(this, r, Toast.LENGTH_LONG).show();
+                        showHome();
+                        resultView.setText(r);
+                    });
                 }).start();
             }));
         }
@@ -1477,13 +1482,17 @@ public class WizardActivity extends Activity {
                 java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
                 byte[] chunk = new byte[4096];
                 int n;
-                while ((n = in.read(chunk)) >= 0) buf.write(chunk, 0, n);
+                while ((n = in.read(chunk)) >= 0) {
+                    buf.write(chunk, 0, n);
+                    if (buf.size() > 65536) { in.close(); throw new Exception("Update info is too large."); }
+                }
                 in.close();
                 org.json.JSONObject o = new org.json.JSONObject(buf.toString("UTF-8"));
                 final long code = o.optLong("versionCode", 0);
                 final String name = o.optString("versionName", "");
                 final String changelog = o.optString("changelog", "");
                 final String apkUrl = o.optString("apkUrl", "");
+                final String sha256 = o.optString("sha256", "");
                 runOnUiThread(() -> {
                     getSharedPreferences("updates", MODE_PRIVATE).edit()
                         .putLong("last_check", System.currentTimeMillis())
@@ -1491,6 +1500,7 @@ public class WizardActivity extends Activity {
                         .putString("latest_name", name)
                         .putString("latest_changelog", changelog)
                         .putString("latest_apk_url", apkUrl)
+                        .putString("latest_sha256", sha256)
                         .apply();
                     if ("Updates".equals(currentTitle)) {
                         showUpdates();
@@ -1523,6 +1533,19 @@ public class WizardActivity extends Activity {
             resultView.setText("This update has no download link yet.");
             return;
         }
+        try {
+            java.net.URL u = new java.net.URL(apkUrl);
+            if (!"https".equals(u.getProtocol())
+                    || !(u.getHost().equals("github.com") || u.getHost().endsWith(".github.com")
+                            || u.getHost().equals("release-assets.githubusercontent.com")
+                            || u.getHost().endsWith(".githubusercontent.com"))) {
+                resultView.setText("Update link is not a trusted GitHub download, refusing.");
+                return;
+            }
+        } catch (Exception e) {
+            resultView.setText("Update link is not valid.");
+            return;
+        }
         resultView.setText("Downloading...");
         new Thread(() -> {
             try {
@@ -1538,9 +1561,29 @@ public class WizardActivity extends Activity {
                 java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
                 byte[] chunk = new byte[8192];
                 int n;
-                while ((n = in.read(chunk)) >= 0) fos.write(chunk, 0, n);
+                long total = 0;
+                while ((n = in.read(chunk)) >= 0) {
+                    total += n;
+                    if (total > 10_485_760L) { fos.close(); in.close(); out.delete(); throw new Exception("Update file is too large."); }
+                    fos.write(chunk, 0, n);
+                }
                 fos.close();
                 in.close();
+                String expected = getSharedPreferences("updates", MODE_PRIVATE).getString("latest_sha256", "");
+                if (expected != null && !expected.isEmpty()) {
+                    java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+                    java.io.InputStream fin = new java.io.FileInputStream(out);
+                    byte[] b = new byte[8192];
+                    int r;
+                    while ((r = fin.read(b)) >= 0) md.update(b, 0, r);
+                    fin.close();
+                    StringBuilder hex = new StringBuilder();
+                    for (byte v : md.digest()) hex.append(String.format("%02x", v));
+                    if (!expected.trim().toLowerCase(java.util.Locale.US).equals(hex.toString())) {
+                        out.delete();
+                        throw new Exception("Update file failed its integrity check.");
+                    }
+                }
                 runOnUiThread(() -> {
                     try {
                         android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(this, "com.stevi2k.atvhome.fileprovider", out);

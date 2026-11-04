@@ -707,8 +707,6 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         // Seasonal decorations, on top of everything but never intercepting input.
         decorView = new DecorView(this);
         decorView.setKind(Themes.decor(currentTheme));
-        decorView.setDockBandTop(currentTheme == Themes.CHRISTMAS || currentTheme == Themes.WINTER
-                ? bandTop : -1);
         root.addView(decorView, new FrameLayout.LayoutParams(-1, -1));
 
         buildPicker();
@@ -752,8 +750,6 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
             decorView.stop();
             decorView.setKind(Themes.decor(theme));
             if (theme != Themes.CHRISTMAS) decorView.setFocusRect(null);
-            decorView.setDockBandTop(theme == Themes.CHRISTMAS || theme == Themes.WINTER
-                    ? bandTop + content.getTranslationY() : -1);
             decorView.start();
         }
     }
@@ -1891,11 +1887,7 @@ public class HomeActivity extends Activity implements Wallpapers.Listener {
         RectF target = targetRect();
         if (target != null) moveHighlight(target, animate && hlPlaced);
         // Snow cap rides with the dock band once the scroll settles.
-        main.postDelayed(() -> {
-            if (decorView != null) decorView.setDockBandTop(
-                    currentTheme == Themes.CHRISTMAS || currentTheme == Themes.WINTER
-                            ? bandTop + content.getTranslationY() : -1);
-        }, 400);
+        // Dock snow cap was removed Nov 2, 2026; no decor call needed here.
     }
 
     private float titleAlpha() {

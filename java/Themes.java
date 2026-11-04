@@ -90,7 +90,11 @@ final class Themes {
     }
 
     /** Bundled wallpaper for a theme, or 0 for Default (which keeps the user's photo rotation). */
+    private static final int[] CACHED_WP = new int[]{-1, -1, -1, -1, -1};
+
     static int wallpaperRes(Context c, int theme) {
+        if (theme < 0 || theme >= NAMES.length) return 0;
+        if (CACHED_WP[theme] >= 0) return CACHED_WP[theme];
         String name = null;
         switch (theme) {
             case FALL: name = "theme_fall"; break;
@@ -99,7 +103,9 @@ final class Themes {
             case SPRING: name = "theme_spring"; break;
             default: return 0;
         }
-        return c.getResources().getIdentifier(name, "drawable", c.getPackageName());
+        int id = c.getResources().getIdentifier(name, "drawable", c.getPackageName());
+        CACHED_WP[theme] = id;
+        return id;
     }
 
     /** Whole days from today until Christmas Day, counting this year's if it has not passed yet. */

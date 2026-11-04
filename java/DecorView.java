@@ -45,7 +45,6 @@ final class DecorView extends View {
     // Focused tile, in this view's (screen) coordinates, set by HomeActivity
     // from its focus highlight; and the dock band's screen top, for its snow cap.
     private final android.graphics.RectF focusRect = new android.graphics.RectF();
-    private float dockBandTop = -1;
     private final Random random = new Random();
     private final List<Particle> particles = new ArrayList<>();
     private final Runnable tick = new Runnable() {
@@ -72,6 +71,19 @@ final class DecorView extends View {
     private int kind = Themes.DECOR_NONE;
     private boolean running;
     private long lastTick;
+    // Static piles, built once in onSizeChanged() instead of rebuilt every
+    // frame: the mound and drift shapes are deterministic functions of width
+    // and height, so caching them keeps the exact same visible surface at
+    // a fraction of the per-frame path work. Sparkle positions are cached too.
+    private final android.graphics.Path leafMoundPath = new android.graphics.Path();
+    private final android.graphics.Path snowBackPath = new android.graphics.Path();
+    private final android.graphics.Path snowFrontPath = new android.graphics.Path();
+    private float[] sparkleX = new float[0];
+    private float[] sparkleY = new float[0];
+    private float[] sparkleR = new float[0];
+    private float[] sparkleA = new float[0];
+    private float dpSnowStroke;
+    private float dpLeafVein;
 
     DecorView(Context c) {
         super(c);
@@ -108,7 +120,50 @@ final class DecorView extends View {
     @Override
     protected void onSizeChanged(int w, int h, int oldW, int oldH) {
         super.onSizeChanged(w, h, oldW, oldH);
+        dpSnowStroke = Math.max(1.5f, Ui.dp(getContext(), 1.2f));
+        dpLeafVein = Math.max(1f, Ui.dp(getContext(), 0.8f));
         buildParticles();
+        buildStaticPiles(w, h);
+    }
+
+    /** Build the mound/drift paths and sparkle positions once per size. */
+    private void buildStaticPiles(int w, int h) {
+        leafMoundPath.reset();
+        leafMoundPath.moveTo(0, h);
+        leafMoundPath.lineTo(0, h - Ui.dp(getContext(), 14f));
+        int seg = Ui.dp(getContext(), 90f);
+        for (int x = 0; x < w; x += seg) {
+            float peak = Ui.dp(getContext(), 12f + ((x / seg * 29) % 14));
+            float x1 = Math.min(w, x + seg);
+            leafMoundPath.cubicTo(x + seg * 0.3f, h - peak - Ui.dp(getContext(), 8f),
+                    x + seg * 0.7f, h - peak, x1, h - Ui.dp(getContext(), 12f));
+        }
+        leafMoundPath.lineTo(w, h);
+        leafMoundPath.close();
+        buildDriftPath(snowBackPath, w, h, 30f, 120f, 37);
+        buildDriftPath(snowFrontPath, w, h, 20f, 90f, 53);
+        sparkleX = new float[40]; sparkleY = new float[40]; sparkleR = new float[40]; sparkleA = new float[40];
+        for (int i = 0; i < 40; i++) {
+            sparkleX[i] = (i * 97) % Math.max(1, w);
+            sparkleY[i] = h - Ui.dp(getContext(), 16f + ((i * 31) % 14));
+            sparkleR[i] = Ui.dp(getContext(), 1.5f + ((i * 7) % 2));
+            sparkleA[i] = 140 + ((i * 53) % 100);
+        }
+    }
+
+    private void buildDriftPath(android.graphics.Path path, int w, int h, float baseDp, float segDp, int seed) {
+        path.reset();
+        path.moveTo(0, h);
+        path.lineTo(0, h - Ui.dp(getContext(), baseDp));
+        int seg = Ui.dp(getContext(), segDp);
+        for (int x = 0; x < w; x += seg) {
+            float peak = Ui.dp(getContext(), baseDp * 0.6f + ((x / Math.max(1, seg) * seed) % 16));
+            float x1 = Math.min(w, x + seg);
+            path.cubicTo(x + seg * 0.3f, h - peak - Ui.dp(getContext(), 10f),
+                    x + seg * 0.7f, h - peak, x1, h - Ui.dp(getContext(), baseDp * 0.9f));
+        }
+        path.lineTo(w, h);
+        path.close();
     }
 
     @Override
@@ -152,12 +207,6 @@ final class DecorView extends View {
         invalidate();
     }
 
-    /** Dock band's screen top, or -1 for no dock snow cap. */
-    void setDockBandTop(float top) {
-        dockBandTop = top;
-        invalidate();
-    }
-
     @Override
     protected void onDraw(Canvas c) {
         super.onDraw(c);
@@ -187,7 +236,7 @@ final class DecorView extends View {
                 int a = 150 + (int) (80 * Math.sin(now / 500.0 + p.phase));
                 paint.setAlpha(a);
                 paint.setStyle(Paint.Style.STROKE);
-                paint.setStrokeWidth(Math.max(1.5f, Ui.dp(getContext(), 1.2f)));
+                paint.setStrokeWidth(dpSnowStroke);
                 for (int k = 0; k < 3; k++) {
                     double ang = Math.PI * k / 3.0;
                     float dx = (float) Math.cos(ang) * r, dy = (float) Math.sin(ang) * r;
@@ -215,7 +264,7 @@ final class DecorView extends View {
         c.drawPath(bulbPath, paint);
         // Vein down the middle, and a short stem at the bottom.
         paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(Math.max(1f, Ui.dp(getContext(), 0.8f)));
+        paint.setStrokeWidth(dpLeafVein);
         paint.setColor(0x66000000);
         c.drawLine(0, -size * 0.8f, 0, size * 0.9f, paint);
         c.drawLine(0, size, 0, size * 1.35f, paint);
@@ -253,22 +302,10 @@ final class DecorView extends View {
             drawLeafShape(c, size);
             c.restore();
         }
-        // Lumpy mound base, taller in the middle of each segment than at its ends.
+        // Lumpy mound base, pre-built in buildStaticPiles(), not rebuilt per frame.
         paint.setColor(0xFF5E3218);
         paint.setAlpha(255);
-        pilePath.reset();
-        pilePath.moveTo(0, h);
-        pilePath.lineTo(0, h - Ui.dp(getContext(), 14f));
-        int seg = Ui.dp(getContext(), 90f);
-        for (int x = 0; x < w; x += seg) {
-            float peak = Ui.dp(getContext(), 12f + ((x / seg * 29) % 14));
-            float x1 = Math.min(w, x + seg);
-            pilePath.cubicTo(x + seg * 0.3f, h - peak - Ui.dp(getContext(), 8f),
-                    x + seg * 0.7f, h - peak, x1, h - Ui.dp(getContext(), 12f));
-        }
-        pilePath.lineTo(w, h);
-        pilePath.close();
-        c.drawPath(pilePath, paint);
+        c.drawPath(leafMoundPath, paint);
         // Front layer: smaller, brighter leaves scattered on top, deterministic
         // so the pile does not shimmer each frame.
         for (int i = 0; i < 70; i++) {
@@ -294,21 +331,17 @@ final class DecorView extends View {
         // Back drift: bluish shadow, taller, so the front drift has something to sit on.
         paint.setColor(0xFFC7D9EE);
         paint.setAlpha(255);
-        drawDrift(c, w, h, 30f, 120f, 37);
+        c.drawPath(snowBackPath, paint);
         // Front drift: bright white, lumpy top edge.
         paint.setColor(0xFFF2F7FF);
-        drawDrift(c, w, h, 20f, 90f, 53);
-        // Sparkles resting on the front drift's top edge, deterministic positions.
+        c.drawPath(snowFrontPath, paint);
+        // Sparkles resting on the front drift's top edge, cached positions.
         paint.setColor(0xFFFFFFFF);
-        for (int i = 0; i < 40; i++) {
-            float x = (i * 97) % Math.max(1, w);
-            float y = h - Ui.dp(getContext(), 16f + ((i * 31) % 14));
-            paint.setAlpha(140 + ((i * 53) % 100));
-            c.drawCircle(x, y, Ui.dp(getContext(), 1.5f + ((i * 7) % 2)), paint);
+        for (int i = 0; i < sparkleX.length; i++) {
+            paint.setAlpha((int) sparkleA[i]);
+            c.drawCircle(sparkleX[i], sparkleY[i], sparkleR[i], paint);
         }
         paint.setAlpha(255);
-        // No snow cap on the dock band: removed Nov 2, 2026 at Steve's request.
-        // dockBandTop is kept as a no-op setter so HomeActivity needs no change.
     }
 
     /** One wavy snow drift: base height, segment width, and a seed for its lumps. */

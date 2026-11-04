@@ -704,9 +704,9 @@ final class SetupManager {
         int active = prefs.getInt("profile", 0);
         String activeName = (active >= 0 && active < ps.size()) ? ps.get(active).name : "";
         root.put("activeProfileName", activeName);
+        // Exported configs keep only the weather place name, never lat/lon:
+        // a shared config file must not leak the home area as coordinates.
         org.json.JSONObject weather = new org.json.JSONObject();
-        weather.put("lat", prefs.getString("weather_lat", ""));
-        weather.put("lon", prefs.getString("weather_lon", ""));
         weather.put("place", prefs.getString("weather_place", ""));
         root.put("weather", weather);
         org.json.JSONArray disabled = new org.json.JSONArray();
@@ -786,27 +786,38 @@ final class SetupManager {
         org.json.JSONArray profiles = root.optJSONArray("profiles");
         if (profiles == null) return "No profiles in this file.";
         if (profiles.length() == 0) return "No profiles in this file.";
+        if (profiles.length() > 10) return "Too many profiles in this file (max 10).";
+        java.util.Set<String> seenNames = new java.util.HashSet<>();
+        java.util.Set<String> seenIds = new java.util.HashSet<>();
         for (int i = 0; i < profiles.length(); i++) {
             org.json.JSONObject o = profiles.optJSONObject(i);
             if (o == null) return "A profile is not an object.";
             String name = o.optString("name", "").trim();
             if (name.isEmpty()) return "A profile has no name.";
+            if (name.length() > 40) return "A profile name is too long (max 40).";
+            if (!seenNames.add(name.toLowerCase(java.util.Locale.US))) return "Duplicate profile name in this file.";
+            String id = o.optString("id", "").trim();
+            if (!id.isEmpty() && !seenIds.add(id)) return "Duplicate profile id in this file.";
             if (o.has("kid") && !(o.opt("kid") instanceof Boolean)) return "A profile's kid flag is not true or false.";
             for (String key : new String[]{"dock", "hidden"}) {
                 if (!o.has(key)) continue;
                 org.json.JSONArray arr = o.optJSONArray(key);
                 if (arr == null) return "A profile's " + key + " list is not a list.";
+                if (arr.length() > 50) return "A profile's " + key + " list is too long (max 50).";
+                java.util.Set<String> seenPkgs = new java.util.HashSet<>();
                 for (int j = 0; j < arr.length(); j++) {
                     Object v = arr.opt(j);
                     if (!(v instanceof String) || !isWellFormedPackage((String) v)) {
                         return "A profile lists an invalid app package.";
                     }
+                    if (!seenPkgs.add((String) v)) return "A profile lists the same app twice.";
                 }
             }
         }
         if (root.has("disabled")) {
             org.json.JSONArray dis = root.optJSONArray("disabled");
             if (dis == null) return "The disabled list is not a list.";
+            if (dis.length() > 200) return "The disabled list is too long (max 200).";
             for (int i = 0; i < dis.length(); i++) {
                 Object v = dis.opt(i);
                 if (!(v instanceof String) || !isWellFormedPackage((String) v)) {

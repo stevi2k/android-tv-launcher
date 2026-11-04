@@ -304,7 +304,21 @@ final class PhoneServer {
                 json(out, 200, pairStatus(param(r, "id"), r.ip));
                 return;
         }
-        if (!authorised(r)) {
+        // State-changing endpoints require the token in the X-Token header, not
+        // in a URL query, so a token never lands in browser history or a log.
+        // Read-only endpoints (state, remote, banner, photo GET, config list/download)
+        // still accept ?t=, which is what the phone page uses for simple GETs.
+        boolean readOnly = r.path.equals("/api/state") || r.path.equals("/api/remote")
+                || r.path.equals("/api/banner") || r.path.equals("/api/config/list")
+                || r.path.equals("/api/config/download")
+                || (r.path.equals("/api/photo") && !"POST".equals(r.method));
+        // Exception, not a loophole by accident: /api/key and /api/text are the
+        // Siri-shortcut GET endpoints, which can only carry the token in the
+        // query. The phone page itself sends X-Token on every call, so this
+        // exception changes nothing for it, and wizard/config/photo writes
+        // below still require the header.
+        boolean allowQuery = readOnly || r.path.equals("/api/key") || r.path.equals("/api/text");
+        if (!authorised(r, allowQuery)) {
             json(out, 401, err("not paired"));
             return;
         }
@@ -673,8 +687,13 @@ final class PhoneServer {
      *  time) are stamped on first use, so existing phones are not cut
      *  off immediately; expired tokens are dropped from the set. */
     private boolean authorised(Req r) {
+        return authorised(r, true);
+    }
+
+    /** allowQuery=true for read-only endpoints; state-changing endpoints need the header. */
+    private boolean authorised(Req r, boolean allowQuery) {
         String t = r.headers.get("x-token");
-        if (t == null) t = r.query.get("t");
+        if (t == null && allowQuery) t = r.query.get("t");
         if (t == null || t.isEmpty()) return false;
         Set<String> tokens = new HashSet<>(prefs.getStringSet("tokens", new HashSet<>()));
         if (!tokens.contains(t)) return false;
@@ -941,12 +960,19 @@ final class PhoneServer {
             send(out, 404, "text/plain", new byte[0], null);
             return;
         }
-        byte[] data;
+        // Stream the file instead of loading it whole into memory, like configDownload.
+        String head = "HTTP/1.1 200 OK\r\n"
+                + "Content-Type: image/jpeg\r\n"
+                + "Content-Length: " + f.length() + "\r\n"
+                + "Cache-Control: no-store\r\n"
+                + "Connection: close\r\n\r\n";
+        out.write(head.getBytes(StandardCharsets.US_ASCII));
         try (InputStream in = new FileInputStream(f)) {
-            data = readAll(in);
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
         }
-        // ids stay the same when a photo is re-framed, so don't let the phone cache it
-        send(out, 200, "image/jpeg", data, null);
+        out.flush();
     }
 
     private synchronized byte[] banner(String pkg) {
