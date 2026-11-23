@@ -1,7 +1,7 @@
 {
-  "versionCode": 260117,
-  "versionName": "26.1.17",
-  "apkUrl": "https://github.com/stevi2k/android-tv-launcher/releases/download/v26.1.17/android-tv-launcher-26.1.17.apk",
-  "sha256": "30088ae5864dbbf2355d4259ac285780220aebf13cc2dbd8c287972e34f9cbf7",
-  "changelog": "Audit fixes: update downloads now verify SHA-256 and only accept GitHub download hosts, with a 10 MB cap; DecorView snow/leaf piles are pre-built once per size instead of rebuilt every frame; config imports are capped (10 profiles, 50 dock/hidden items each, 40-char names, no duplicates); phone token is required in the X-Token header for state-changing endpoints (Siri key/text GETs still accept the query token); shared configs no longer export weather lat/lon; Settings set-as-home now shows the result as a Toast and refreshes the list."
+  "versionCode": 260200,
+  "versionName": "26.2.0",
+  "apkUrl": "https://github.com/stevi2k/android-tv-launcher/releases/download/v26.2.0/android-tv-launcher-26.2.0.apk",
+  "sha256": "c526b5e5a48dd2b4995d9d8b9dd0277372b378d4578d730f392e44c8a401487a",
+  "changelog": "Running apps in Settings: see what's running right now and close apps that are running, like Spotify, Apple Music and YouTube. Closing stops the app completely; it starts again when you open it. Nothing is disabled or uninstalled."
 }
