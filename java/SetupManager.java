@@ -20,7 +20,7 @@ import java.util.Set;
  * (WizardActivity, opened from the Launcher Settings tile) or from a phone
  * (the wizard webpage hosted by PhoneServer on port 8080).
  *
- * Debloat and set-home go through LocalShell, the TV's own localhost ADB
+ * Debloat, set-home and running apps go through LocalShell, the TV's own localhost ADB
  * connection, so this is one install only: no PC, no second helper app.
  * Everything else (users, docks, hidden, backup) is plain app code and
  * works even if local ADB is not authorised yet.
@@ -410,6 +410,96 @@ final class SetupManager {
             }
         }
         return out;
+    }
+
+    // ---------------------------------------------------------------- running apps
+
+    /** Process names from one `ps -A` listing: each name plus its pre-colon
+     *  part, so com.foo:remote counts as com.foo. The header line is skipped. */
+    private static Set<String> parsePs(String out) {
+        Set<String> live = new HashSet<>();
+        for (String line : out.split("\n")) {
+            line = line.trim();
+            if (line.isEmpty() || line.startsWith("USER")) continue;
+            String[] parts = line.split("\\s+");
+            if (parts.length == 0) continue;
+            String name = parts[parts.length - 1];
+            live.add(name);
+            int colon = name.indexOf(':');
+            if (colon > 0) live.add(name.substring(0, colon));
+        }
+        return live;
+    }
+
+    /** True if the package has a live process in this ps listing. ps shows
+     *  process names cut to 15 characters on some TVs, so a live name that
+     *  is a 15+ character prefix of the package counts too. */
+    private static boolean isLive(Set<String> live, String pkg) {
+        if (live.contains(pkg)) return true;
+        for (String n : live) {
+            if (n.length() >= 15 && pkg.startsWith(n)) return true;
+        }
+        return false;
+    }
+
+    /** Launchable apps with a live process right now, sorted by label.
+     *  The launcher itself is never listed: closing it would kill this
+     *  screen. Cached apps show up too; closing one just frees memory,
+     *  it starts again when opened. Needs local ADB (LocalShell). */
+    List<Candidate> runningApps(LocalShell shell) throws Exception {
+        Set<String> live = parsePs(shell.run("ps -A"));
+        List<Candidate> running = new ArrayList<>();
+        for (AppRepo.App app : AppRepo.allApps(c)) {
+            if (app.pkg.equals(c.getPackageName())) continue;
+            if (isLive(live, app.pkg)) running.add(new Candidate(app.label, app.pkg, false));
+        }
+        running.sort((a, b) -> a.label.compareToIgnoreCase(b.label));
+        return running;
+    }
+
+    /** Force-stops the given packages via local ADB, then re-checks with
+     *  ps which ones are actually gone. A stopped app restarts when it is
+     *  opened again; nothing is disabled or uninstalled. */
+    String closeApps(LocalShell shell, List<String> pkgs) {
+        if (pkgs.isEmpty()) return "No apps selected.";
+        List<String> todo = new ArrayList<>();
+        StringBuilder result = new StringBuilder();
+        for (String pkg : pkgs) {
+            if (!isValidPackage(pkg)) {
+                result.append(pkg).append(": skipped (invalid package)\n");
+                continue;
+            }
+            if (PROTECTED.contains(pkg) || pkg.equals(c.getPackageName())) {
+                result.append(pkg).append(": skipped (protected)\n");
+                continue;
+            }
+            todo.add(pkg);
+        }
+        if (todo.isEmpty()) return result.toString();
+        // One ADB connection for the whole list, like debloat.
+        List<String> cmds = new ArrayList<>();
+        for (String pkg : todo) cmds.add("am force-stop " + pkg);
+        List<String> outs = shell.runBatch(cmds);
+        // Re-check: a force-stop that silently failed still leaves a live process.
+        Set<String> stillLive = new HashSet<>();
+        try {
+            stillLive = parsePs(shell.run("ps -A"));
+        } catch (Exception ignored) {
+        }
+        for (int i = 0; i < todo.size(); i++) {
+            String pkg = todo.get(i);
+            String o = outs.get(i);
+            if (o.startsWith("failed:")) {
+                result.append(pkg).append(": failed: ").append(o).append("\n");
+                continue;
+            }
+            if (isLive(stillLive, pkg)) {
+                result.append(pkg).append(": still running, try again\n");
+                continue;
+            }
+            result.append(pkg).append(": closed\n");
+        }
+        return result.toString();
     }
 
     /** HOME activities other than our own launcher, for the set-home step.

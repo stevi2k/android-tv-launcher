@@ -28,9 +28,9 @@ import java.util.Set;
  *
  * This is the TV side of the one-install setup wizard. The phone side is
  * the wizard webpage hosted by PhoneServer, both use SetupManager, and
- * debloat / set-home go through LocalShell, the TV's own localhost ADB.
+ * debloat / set-home / running apps go through LocalShell, the TV's own localhost ADB.
  * Renaming users is easiest on the phone webpage, the TV screen here
- * covers backup, debloat, docks, hidden, set-home and restore.
+ * covers backup, debloat, docks, hidden, set-home, restore and running apps.
  */
 public class WizardActivity extends Activity {
 
@@ -472,6 +472,7 @@ public class WizardActivity extends Activity {
         items.add(new Item("Weather location", "Set the city for the home screen weather, or detect it from your IP. Nothing is baked in.", this::showWeather));
         items.add(new Item("Set this launcher as home", "Disable all other launchers, so this launcher opens when you press Home. Reversible in Restore.", this::showHome));
         items.add(new Item("Restore disabled apps", "Shows every disabled app on the TV. Bring back one at a time, or all at once.", this::showRestore));
+        items.add(new Item("Running apps", "See what's running right now, Spotify, YouTube, Apple Music, and close one app, or all of them. Closing stops the app completely, it starts again when you open it.", this::showRunningApps, R.drawable.mdi_close));
         items.add(new Item("How to pair your phone", "Step by step: open the TV's phone page, pair it once, then run the wizard from your phone.", this::showPairHelp));
         items.add(new Item("TV info and IP", "Your TV's IP address, Wi-Fi, model, and the phone pages to open for the remote and the wizard.", this::showTvInfo));
         items.add(new Item("Wallpaper photos", "Photos already on this TV: show one now, or delete it. New photos come from a phone, they cannot be taken on the TV itself.", this::showPhotos));
@@ -815,6 +816,7 @@ public class WizardActivity extends Activity {
         items.add(new Item("Weather location", "The city used for the home screen weather. Set a city on the phone wizard page, or detect it from your IP in Weather location. No city is baked in.", () -> resultView.setText("The city used for the home screen weather. Set a city on the phone wizard page, or detect it from your IP in Weather location. No city is baked in.")));
         items.add(new Item("Set this launcher as home", "Disable all other launchers, so pressing Home opens this launcher instead. If you ever want the old home back, use Restore and bring the stock home app back.", () -> resultView.setText("Disable all other launchers, so pressing Home opens this launcher instead. If you ever want the old home back, use Restore and bring the stock home app back.")));
         items.add(new Item("Restore disabled apps", "Lists every app on the TV that is currently disabled, including apps disabled before this wizard existed. Pick one to turn it back on, or Restore ALL to turn them all back on.", () -> resultView.setText("Lists every app on the TV that is currently disabled, including apps disabled before this wizard existed. Pick one to turn it back on, or Restore ALL to turn them all back on.")));
+        items.add(new Item("Running apps", "Lists apps with a live process right now, like Spotify, YouTube or Apple Music. Pick one to close it, or Close all at the top. Closing stops the app completely, it starts again when you open it. Nothing is disabled or uninstalled.", () -> resultView.setText("Lists apps with a live process right now, like Spotify, YouTube or Apple Music. Pick one to close it, or Close all at the top. Closing stops the app completely, it starts again when you open it. Nothing is disabled or uninstalled.")));
         items.add(new Item("How to pair your phone", "How to connect your phone to the TV's own webpage, so you can use the remote and the wizard from your phone without a PC.", () -> resultView.setText("How to connect your phone to the TV's own webpage, so you can use the remote and the wizard from your phone without a PC.")));
         items.add(new Item("TV info and IP", "The network details you need to open the phone pages: the TV's IP address, its Wi-Fi name, and the two URLs for the remote and the wizard.", () -> resultView.setText("The network details you need to open the phone pages: the TV's IP address, its Wi-Fi name, and the two URLs for the remote and the wizard.")));
         items.add(new Item("Themes", "Seasonal looks for home: background and dock colours, plus falling snow, leaves or petals, and Christmas lights on the Christmas theme. Decorations only animate while home is on screen.", () -> resultView.setText("Seasonal looks for home: background and dock colours, plus falling snow, leaves or petals, and Christmas lights on the Christmas theme. Decorations only animate while home is on screen.")));
@@ -968,6 +970,69 @@ public class WizardActivity extends Activity {
             }));
         }
         show("Restore disabled apps", "Pick one app to bring back, or Restore ALL at the top. " + disabled.size() + " disabled apps found.", items, this::showMenu);
+    }
+
+    /** Lists apps with a live process, then shows the close screen. The
+     *  listing runs off the UI thread: the local ADB connection can take
+     *  a few seconds, and a first-time connection waits on the TV's
+     *  "Allow USB debugging?" prompt. */
+    private void showRunningApps() {
+        resultView.setText("Working...");
+        new Thread(() -> {
+            List<SetupManager.Candidate> running = null;
+            String err = null;
+            try {
+                running = setup.runningApps(shell);
+            } catch (Exception e) {
+                err = shell.lastError();
+            }
+            final List<SetupManager.Candidate> list = running;
+            final String error = err;
+            runOnUiThread(() -> {
+                if (list == null) {
+                    List<Item> items = new ArrayList<>();
+                    show("Running apps", "Couldn't list running apps: " + (error == null ? "unknown error" : error) + ". This usually means the TV is waiting for \"Allow USB debugging?\" (tick Always allow), or network debugging is off. Check Settings > Helper status, then try again.", items, this::showMenu);
+                    return;
+                }
+                showRunningApps(list);
+            });
+        }).start();
+    }
+
+    private void showRunningApps(List<SetupManager.Candidate> running) {
+        if (running.isEmpty()) {
+            List<Item> items = new ArrayList<>();
+            show("Running apps", "Nothing is running right now except the launcher itself.", items, this::showMenu);
+            return;
+        }
+        List<Item> items = new ArrayList<>();
+        items.add(new Item("Close all running apps (" + running.size() + ")", () -> {
+            List<String> pkgs = new ArrayList<>();
+            for (SetupManager.Candidate cand : running) pkgs.add(cand.pkg);
+            resultView.setText("Working...");
+            new Thread(() -> {
+                String r = setup.closeApps(shell, pkgs);
+                runOnUiThread(() -> {
+                    resultView.setText(r);
+                    showRunningApps();
+                });
+            }).start();
+        }));
+        for (SetupManager.Candidate cand : running) {
+            items.add(new Item("Close " + cand.label, cand.pkg, () -> {
+                resultView.setText("Working...");
+                new Thread(() -> {
+                    List<String> one = new ArrayList<>();
+                    one.add(cand.pkg);
+                    String r = setup.closeApps(shell, one);
+                    runOnUiThread(() -> {
+                        resultView.setText(r);
+                        showRunningApps();
+                    });
+                }).start();
+            }));
+        }
+        show("Running apps", "Use Up/Down to move, OK to close one app, or Close all at the top. Closing stops the app completely, it starts again when you open it. Some apps that were only cached in memory may also show up here.", items, this::showMenu);
     }
 
     private void showDebloat() {
